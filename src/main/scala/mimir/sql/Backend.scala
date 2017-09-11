@@ -2,6 +2,7 @@ package mimir.sql;
 
 import java.sql._
 
+import mimir.Database
 import mimir.algebra._
 import mimir.util.JDBCUtils
 import net.sf.jsqlparser.statement.select.{Select, SelectBody};
@@ -47,6 +48,7 @@ abstract class Backend {
 
   def getAllTables(): Seq[String]
 
+  def enableInlining(db: Database): Unit
   def close()
 
   def canHandleVGTerms(): Boolean

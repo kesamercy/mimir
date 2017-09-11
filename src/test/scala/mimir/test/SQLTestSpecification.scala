@@ -32,7 +32,11 @@ object DBTestInstances
             case "NO" => false; case "YES" => true
           }
           val oldDBExists = dbFile.exists();
-          val backend = new JDBCBackend(jdbcBackendMode, tempDBName+".db")
+          val backend:Backend = jdbcBackendMode match {
+            case "spark" => new SparkSQLBackend(new JDBCBackend("sqlite", tempDBName+".db"))
+            case "jdbc" => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
+            case _ => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
+          }
           val tmpDB = new Database(backend);
           if(shouldResetDB){
             if(dbFile.exists()){ dbFile.delete(); }

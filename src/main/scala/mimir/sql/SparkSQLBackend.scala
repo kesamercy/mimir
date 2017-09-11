@@ -11,28 +11,32 @@ import mimir.sql.sparksql._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import mimir.sql.sparksql.SparkResultSet
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
-class SparkSQLBackend() 
+class SparkSQLBackend(jdbcBackend: JDBCBackend)
   extends Backend
 {
  
- var spark: org.apache.spark.sql.SparkSession = null
- var inliningAvailable = false;
-
+  var spark: org.apache.spark.sql.SparkSession = null
+  var inliningAvailable = false;
+  jdbcBackend.open()
   
   val tableSchemas: scala.collection.mutable.Map[String, Seq[(String, Type)]] = mutable.Map()
 
   def open() = {
     this.synchronized({
-      spark = org.apache.spark.sql.SparkSession.builder
-        .master("local")
-        .appName("MimirSparkSQLBackend")
-        .enableHiveSupport()
-        .getOrCreate;
+      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[2]")
+      spark = SparkSession
+        .builder()
+        .config(conf)
+        .getOrCreate()
 
       assert(spark != null)
-      
+      assert(jdbcBackend.conn != null)
     })
+    val t: DataFrame = spark.read.jdbc(jdbcBackend.conn.getMetaData.getURL,"(SELECT A FROM R)",new java.util.Properties())
+    t.show()
   }
 
   def enableInlining(db: Database): Unit =
