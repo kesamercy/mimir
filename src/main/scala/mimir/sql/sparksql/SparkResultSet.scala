@@ -40,14 +40,15 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
 
   def getObject[T](colName: String,getAs: Class[T]): T = getObject[T](findColumn(colName),getAs)
   def getObject[T](columnIndex: Int,getAs: Class[T]): T = {
-    if(row>=0 && row<sparkDataFrame.count()){
+    if(row >= 0 && row < sparkDataFrame.count()){
       val ret = rows(row.toInt).get(columnIndex)
       if(ret == null)
         wasLastGetNull = true
       ret.asInstanceOf[T]
     }
     else
-      throw new IndexOutOfBoundsException(s"Row: $row is out of the range of 0 - ${sparkDataFrame.count()}")
+      null.asInstanceOf[T]
+      //throw new IndexOutOfBoundsException(s"Row: $row is out of the range of 0 - ${sparkDataFrame.count()}")
   }
   def getObject(x$1: String,x$2: java.util.Map[String,Class[_]]): Object = throw new UnsupportedOperationException(
       "Sorry, the driver does not implement getDate")
@@ -218,7 +219,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   }
   
   def last(): Boolean = {
-    row = sparkDataFrame.count()  
+    row = sparkDataFrame.count() -1
     sparkDataFrame.count() > 0 
   }
   

@@ -17,11 +17,13 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 class SparkSQLBackend(jdbcBackend: JDBCBackend)
   extends Backend
 {
- 
+
   var spark: org.apache.spark.sql.SparkSession = null
-  var inliningAvailable = false;
+  var sparkConnectionUrl: String = null
+  var sparkConnectionProperties: java.util.Properties = null
+  var inliningAvailable = false
   jdbcBackend.open()
-  
+
   val tableSchemas: scala.collection.mutable.Map[String, Seq[(String, Type)]] = mutable.Map()
 
   def open() = {
@@ -34,9 +36,11 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
 
       assert(spark != null)
       assert(jdbcBackend.conn != null)
+      sparkConnectionUrl = jdbcBackend.conn.getMetaData.getURL
+      sparkConnectionProperties = new java.util.Properties()
     })
-    val t: DataFrame = spark.read.jdbc(jdbcBackend.conn.getMetaData.getURL,"(SELECT A FROM R)",new java.util.Properties())
-    t.show()
+//    val t: DataFrame = spark.read.jdbc(sparkConnectionUrl,"(SELECT * FROM MIMIR_VIEWS)",sparkConnectionProperties)
+//    t.show()
   }
 
   def enableInlining(db: Database): Unit =
@@ -47,26 +51,27 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
 
   def close(): Unit = {
     this.synchronized({
+      jdbcBackend.close()
       spark.close()
     })
   }
 
-  def execute(sel: String): ResultSet = 
+  def execute(sel: String): ResultSet =
   {
     this.synchronized({
       try {
         if(spark == null) {
           throw new SQLException("Trying to use unopened connection!")
         }
-        val df = spark.sql(sel)
+        val df = spark.read.jdbc(sparkConnectionUrl,s"($sel)",sparkConnectionProperties)
         new SparkResultSet(df)
-      } catch { 
+      } catch {
         case e: SQLException => println(e.toString+"during\n"+sel)
           throw new SQLException("Error in "+sel, e)
       }
     })
   }
-  def execute(sel: String, args: Seq[PrimitiveValue]): ResultSet = 
+  def execute(sel: String, args: Seq[PrimitiveValue]): ResultSet =
   {
     this.synchronized({
       try {
@@ -75,22 +80,24 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
         }
         var sqlStr = sel
         args.map(arg => {
-          sqlStr = sqlStr.replaceFirst("?",getArg(arg))
+          sqlStr = sqlStr.replaceFirst("\\?",getArg(arg))
           ""
         })
-        val df = spark.sql(sqlStr)
+        val df = spark.read.jdbc(sparkConnectionUrl,s"($sqlStr)",sparkConnectionProperties)
+          //spark.sql(s"($sqlStr)")
+
         new SparkResultSet(df)
-      } catch { 
+      } catch {
         case e: SQLException => println(e.toString+"during\n"+sel+" <- "+args)
           throw new SQLException("Error", e)
       }
     })
   }
-  
+
   def fixUpdateSqlForSpark(upd: String) : String = {
     upd.replaceAll(",\\s*PRIMARY\\s+KEY\\s*[()a-zA-Z0-9]+", "").replaceAll("\\s+text\\s*(,|[\\s)]+)", " string$1")
   }
-  
+
   def update(upd: String): Unit =
   {
     this.synchronized({
@@ -144,7 +151,7 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
       })
     })
   }
-  
+
   def getTableSchema(table: String): Option[Seq[(String, Type)]] =
   {
     this.synchronized({
@@ -155,14 +162,20 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
       tableSchemas.get(table) match {
         case x: Some[_] => x
         case None =>
-          val tables = this.getAllTables().map{(x) => x.toUpperCase}
-          if(!tables.contains(table.toUpperCase)) return None
+          var tables = this.getAllTables().map { (x) => x.toUpperCase }
+          if (!tables.contains(table.toUpperCase))
+            tables = jdbcBackend.getAllTables().map { (x) => x.toUpperCase }
 
-          val cols: Option[List[(String, Type)]] = SparkSQLCompat.getTableSchema(spark, table)
-            
-          cols match { case None => (); case Some(s) => tableSchemas += table -> s }
+          if (!tables.contains(table.toUpperCase)) return None
+
+          val cols: Option[Seq[(String, Type)]] = jdbcBackend.getTableSchema(table)
+
+          cols match {
+            case None => ();
+            case Some(s) => tableSchemas += table -> s
+          }
           cols
-      }
+        }
     })
   }
 
@@ -178,7 +191,7 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
             case NullPrimitive()      => "NULL"
           }
   }
-  
+
   def getAllTables(): Seq[String] = {
     this.synchronized({
       if(spark == null) {
@@ -186,7 +199,7 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
       }
 
       val tables = spark.catalog.listTables().collect()
-        
+
 
       val tableNames = new ListBuffer[String]()
 
@@ -201,21 +214,21 @@ class SparkSQLBackend(jdbcBackend: JDBCBackend)
   def canHandleVGTerms(): Boolean = inliningAvailable
 
   def specializeQuery(q: Operator): Operator = {
-    if( inliningAvailable ) 
+    if( inliningAvailable )
         VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
      else
         q
   }
 
-  
 
-  def listTablesQuery: Operator = 
+
+  def listTablesQuery: Operator =
   {
     ???
   }
-  def listAttrsQuery: Operator = 
+  def listAttrsQuery: Operator =
   {
     ???
   }
-  
+
 }

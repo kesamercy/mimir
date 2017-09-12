@@ -250,8 +250,12 @@ case class Database(backend: Backend)
    * Look up the schema for the table with the provided name.
    */
   def getTableSchema(name: String): Option[Seq[(String,Type)]] =
-    getView(name).map(_.schema).
-      orElse(backend.getTableSchema(name))
+    try {
+      getView(name).map(_.schema).
+        orElse(backend.getTableSchema(name))
+    } catch {
+      case e: Exception => backend.getTableSchema(name)
+    }
 
   /**
    * Build a Table operator for the table with the provided name.
@@ -377,9 +381,13 @@ case class Database(backend: Backend)
    * name (or None if no such lens exists)
    */
   def getView(name: String): Option[(Operator)] =
+    try{
     catalog(name).orElse(
-      views.get(name)
-    )
+      views.get(name))
+    } catch{
+      case e: Throwable => None
+    }
+
 
   /**
    * Load a CSV file into the database

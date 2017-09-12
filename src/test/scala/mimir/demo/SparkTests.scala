@@ -2,6 +2,7 @@ package mimir.demo
 
 import java.io.File
 
+import mimir.exec.ResultIterator
 import org.specs2.matcher.FileMatchers
 import mimir.test._
 import org.apache.spark
@@ -9,7 +10,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.SparkSession
 
-object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "spark","reset" -> "NO"))
+object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "spark","reset" -> "NO", "inline" -> "NO"))
   with FileMatchers
 {
 
@@ -47,7 +48,10 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       
       spark.read.csv("test/data/ratings1.csv").show()
 */
+      val res: ResultIterator = query("SELECT A FROM R")
+      println(res.getNext())
 
+      println("done")
       true
     }
 
