@@ -251,6 +251,12 @@ class JDBCBackend(val backend: String, val filename: String)
     })
   }
 
+  override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = {
+    Some(this.resultRows(s"SELECT query FROM $table WHERE name = ?",
+      List(StringPrimitive(name.toUpperCase))
+    ))
+  }
+
   def canHandleVGTerms(): Boolean = inliningAvailable
 
   def specializeQuery(q: Operator): Operator = {
@@ -277,6 +283,8 @@ class JDBCBackend(val backend: String, val filename: String)
       }
     })
   }
+
+  def setDB(db:Database) = ???
 
   def listTablesQuery: Operator = 
   {

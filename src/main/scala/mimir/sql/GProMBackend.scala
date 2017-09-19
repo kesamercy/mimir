@@ -319,6 +319,8 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
     })
   }
 
+  override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = ???
+
   def canHandleVGTerms(): Boolean = inliningAvailable
 
   def specializeQuery(q: Operator): Operator = {
@@ -344,6 +346,8 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
       }
     })
   }
+
+  def setDB(db:Database) = ???
 
   def listTablesQuery: Operator = 
   {

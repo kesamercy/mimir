@@ -40,6 +40,7 @@ abstract class Backend {
     resultRows(sel).head.head
   
   def getTableSchema(table: String): Option[Seq[(String, Type)]]
+  def getView(name: String,table: String): Option[Seq[Seq[PrimitiveValue]]]
   
   def update(stmt: String): Unit
   def update(stmt: TraversableOnce[String]): Unit
@@ -53,6 +54,8 @@ abstract class Backend {
 
   def canHandleVGTerms(): Boolean
   def specializeQuery(q: Operator): Operator
+
+  def setDB(db:Database): Unit
 
   def listTablesQuery: Operator
   def listAttrsQuery: Operator

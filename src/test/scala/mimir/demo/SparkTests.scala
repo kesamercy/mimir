@@ -48,8 +48,10 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       
       spark.read.csv("test/data/ratings1.csv").show()
 */
-      val res: ResultIterator = query("SELECT A FROM R")
-      println(res.getNext())
+      val res1: ResultIterator = query("SELECT A FROM R")
+      val res2: ResultIterator = query("SELECT * FROM R")
+//      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
+//      val res4: ResultIterator = query("SELECT * FROM CITYRAW")
 
       println("done")
       true

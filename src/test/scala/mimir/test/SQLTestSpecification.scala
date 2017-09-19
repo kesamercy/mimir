@@ -33,7 +33,7 @@ object DBTestInstances
           }
           val oldDBExists = dbFile.exists();
           val backend:Backend = jdbcBackendMode match {
-            case "spark" => new SparkSQLBackend(new JDBCBackend("sqlite", tempDBName+".db"))
+            case "spark" => new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", tempDBName+".db")))
             case "jdbc" => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
             case _ => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
           }
@@ -49,6 +49,7 @@ object DBTestInstances
             dbFile.deleteOnExit();
           }
           tmpDB.backend.open();
+          tmpDB.backend.setDB(tmpDB)
           if(shouldResetDB && !oldDBExists && !config.contains("initial_db")){
             tmpDB.initializeDBForMimir();
           }

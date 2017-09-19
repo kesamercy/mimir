@@ -16,7 +16,7 @@ sealed trait SparkConnection
   def close(): Unit = {
     SparkConnection.close(this)
   }
-  def loadTable(spark: SparkSession, tableName: String): Unit = {
+  def loadTable(spark: SparkSession, tableName: String, tableAlias: String = null): Unit = {
     SparkConnection.loadTable(spark, this, tableName)
   }
 }
@@ -33,7 +33,7 @@ object SparkConnection {
     case _ => // do nothing
   }
 
-  def loadTable(spark: SparkSession, sparkConnection: SparkConnection, tableName: String): Unit = {
+  def loadTable(spark: SparkSession, sparkConnection: SparkConnection, tableName: String, tableAlias: String = null): Unit = {
     /*
       Used to load a table into the spark session, extend for
      */
@@ -41,8 +41,11 @@ object SparkConnection {
       case sqliteSparkConnection(sqliteBackend) =>
         val sparkConnectionUrl = sqliteBackend.conn.getMetaData.getURL
         val sparkConnectionProperties = new java.util.Properties()
-        val df = spark.read.jdbc(sparkConnectionUrl,s"($tableName)",sparkConnectionProperties)
-        df.createOrReplaceTempView(tableName)
+        val df = spark.read.jdbc(sparkConnectionUrl,s"(SELECT *, ROWID FROM $tableName)",sparkConnectionProperties)
+        if (tableAlias == null)
+          df.createOrReplaceTempView(tableName) // alias has already been checked
+        else
+          df.createOrReplaceTempView(tableAlias)
       case dataframeSparkConnection(dataFrame) => "dataframe"
       case csvSparkConnection(csv) => "csv"
 //      case rddSparkConnection() => "rdd"

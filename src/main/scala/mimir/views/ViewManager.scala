@@ -3,6 +3,7 @@ package mimir.views;
 import mimir._;
 import mimir.algebra._;
 import com.typesafe.scalalogging.slf4j.LazyLogging
+import mimir.sql.SparkSQLBackend
 
 class ViewManager(db:Database) extends LazyLogging {
   
@@ -48,16 +49,17 @@ class ViewManager(db:Database) extends LazyLogging {
 
   def get(name: String): Option[Operator] =
   {
-    val results = 
-      db.backend.resultRows(s"SELECT query FROM $viewTable WHERE name = ?", 
-        List(StringPrimitive(name.toUpperCase))
+    var results: Option[Seq[Seq[PrimitiveValue]]] = db.backend.getView(name,viewTable)
+    results match {
+      case Some(res) =>
+        res.take(1).flatten.toList.headOption.map(
+        {
+          case StringPrimitive(s) =>
+            db.querySerializer.deserializeQuery(s)
+        }
       )
-    results.take(1).flatten.toList.headOption.map( 
-      { 
-        case StringPrimitive(s) => 
-          db.querySerializer.deserializeQuery(s)
-      }
-    )
+      case None => None
+    }
   }
 
   def list(): List[String] =

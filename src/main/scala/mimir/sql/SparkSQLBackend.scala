@@ -21,6 +21,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
 
   var spark: org.apache.spark.sql.SparkSession = null
   var inliningAvailable = false
+  var db: mimir.Database = null
 
   val tableSchemas: scala.collection.mutable.Map[String, Seq[StructField]] = mutable.Map()
 
@@ -34,6 +35,10 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
 
       sparkConnection.open()
       assert(spark != null)
+
+      // check the backend for view tables and try to load them
+//      val viewTableList = ListBuffer("MIMIR_VIEWS")
+//      viewTableList.foreach(loadTable(_))
     })
   }
 
@@ -65,10 +70,12 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         // pass plain to jdbc to get Data Frames
 //        val plainDFSet: Seq[DataFrame] =
 
-        sparkConnection.loadTable(spark,"R")
-        sparkConnection.loadTable(spark,"MIMIR_VIEWS")
+        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
+        tableList.foreach((x) => sparkConnection.loadTable(spark,x._1,x._2))
 
         val df = spark.sql("SELECT * FROM R")
+
+        df.show()
         new SparkResultSet(df)
       } catch {
         case e: SQLException => println(e.toString+"during\n"+sel)
@@ -155,14 +162,40 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         case Some(x: Seq[StructField]) => Some(convertToSchema(x))
         case None =>
           var tables: Seq[String] = this.getAllTables().map { (x) => x.toUpperCase }
+
+          if (!tables.contains(table.toUpperCase)) {
+            sparkConnection.loadTable(spark, table, table) // attempt to load the table
+            tables = this.getAllTables().map { (x) => x.toUpperCase }
+          }
+
           if (!tables.contains(table.toUpperCase))
             return None
 
+
           tableSchemas += table -> spark.table(table).schema.fields.toSeq
           // add the new table and schema to tableSchema list
-          getTableSchema(table)
+
+          tableSchemas.get(table) match {
+            case Some(sch) =>
+              return Some(convertToSchema(sch))
+            case None => return None // redundant
+          }
         }
     })
+  }
+
+  override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = {
+    tableSchemas.get(table) match {
+      case Some(s) =>
+      case None =>
+        loadTable(table)
+    }
+    val n = name.toUpperCase()
+    val df = spark.sql(s"SELECT query FROM $table WHERE name = '$n'")
+    if(df.count() == 0)
+      None
+    else
+      Some(JDBCUtils.extractAllRows(new SparkResultSet(df)).flush)
   }
 
   def convertToSchema(sparkSchema: Seq[StructField]): Seq[(String, Type)] = {
@@ -216,7 +249,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
     val tableInSpark = spark.catalog.tableExists(table)
     if(!tableInSpark){
       // table isn't in spark so try and load table
-      sparkConnection.loadTable(spark,table)
+      loadTable(table)
     }
     spark.catalog.tableExists(table)
   }
@@ -230,7 +263,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         q
   }
 
-
+  def setDB(newDB: Database): Unit = {
+    db = newDB
+  }
 
   def listTablesQuery: Operator =
   {
