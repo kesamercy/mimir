@@ -73,8 +73,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
         tableList.foreach((x) => sparkConnection.loadTable(spark,x._1,x._2))
 
-        val df = spark.sql("SELECT * FROM R")
-
+        val df = spark.sql(sel)
         df.show()
         new SparkResultSet(df)
       } catch {
