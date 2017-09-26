@@ -1,17 +1,11 @@
 package mimir.demo
 
-import java.io.File
-
 import mimir.exec.ResultIterator
-import org.specs2.matcher.FileMatchers
 import mimir.test._
 import mimir.util.TimeUtils
-import org.apache.spark
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.Dataset
-import org.apache.spark.sql.SparkSession
+import org.specs2.matcher.FileMatchers
 
-object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "spark","reset" -> "NO", "inline" -> "NO"))
+object SparkTestsSqlite extends SQLTestSpecification("databases/debug",Map("reset" -> "NO", "inline" -> "NO"))
   with FileMatchers
 {
 
@@ -56,13 +50,17 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
 */
 //      val res1: ResultIterator = query("SELECT A FROM R")
 //      val res2: ResultIterator = query("SELECT * FROM R")
-
-      time("AVERAGE 2M rows",() => {
+/*
+      time("AVERAGE 2M rows, first time",() => {
         val res3: ResultIterator = query("SELECT AVG(bearing) FROM MTA_RAW")
       })
 
-      time("AVERAGE 2M rows",() => {
+      time("AVERAGE 2M rows, second time",() => {
         val res3: ResultIterator = query("SELECT AVG(bearing) FROM MTA_RAW")
+      })
+*/
+      time("Simple UDF Test",() => {
+        val res3: ResultIterator = query("SELECT SUM(SIMPLETEST(bearing)) FROM MTA_RAW")
       })
 //      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
 //      val res4: ResultIterator = query("SELECT * FROM CITYRAW")

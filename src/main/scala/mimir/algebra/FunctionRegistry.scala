@@ -53,6 +53,11 @@ object FunctionRegistry {
 			((args: Seq[Type]) => TRowId())
 		)
 
+    registerNative("SIMPLETEST",
+      {(_) => IntPrimitive(9001)},
+      ((args: Seq[Type]) => TInt())
+    )
+
     registerFold("SEQ_MIN", "IF CURR < NEXT THEN CURR ELSE NEXT END")
     registerFold("SEQ_MAX", "IF CURR > NEXT THEN CURR ELSE NEXT END")
 

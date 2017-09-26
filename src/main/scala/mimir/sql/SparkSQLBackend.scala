@@ -11,7 +11,7 @@ import mimir.sql.sparksql._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import mimir.sql.sparksql.SparkResultSet
-import org.apache.spark.sql.types.{DataType, LongType, StructField}
+import org.apache.spark.sql.types.{DataType, LongType, StructField, IntegerType}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
@@ -35,6 +35,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
 
       sparkConnection.open()
       assert(spark != null)
+
+      // register udf's
+      SparkSQLCompat.registerFunctions(spark)
 
       // check the backend for view tables and try to load them
 //      val viewTableList = ListBuffer("MIMIR_VIEWS")
@@ -202,7 +205,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
   }
 
   def sparkTypesToMimirTypes(dataType: DataType): Type = {
+    println(dataType)
     dataType match {
+      case IntegerType => TInt()
       case LongType => TFloat()
       case _ => TString()
     }

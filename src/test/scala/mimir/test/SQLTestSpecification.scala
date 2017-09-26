@@ -49,7 +49,8 @@ object DBTestInstances
             dbFile.deleteOnExit();
           }
           tmpDB.backend.open();
-          tmpDB.backend.setDB(tmpDB)
+          if(jdbcBackendMode == "spark")
+            tmpDB.backend.setDB(tmpDB)
           if(shouldResetDB && !oldDBExists && !config.contains("initial_db")){
             tmpDB.initializeDBForMimir();
           }

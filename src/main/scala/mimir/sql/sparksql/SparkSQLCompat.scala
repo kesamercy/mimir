@@ -13,7 +13,7 @@ object SparkSQLCompat {
 
   def registerFunctions(spark:org.apache.spark.sql.SparkSession):Unit = {
     spark.udf.register("MIMIRCAST", MimirCast.mimircast _)
-    spark.udf.register("OTHERTEST", OtherTest.othertest _)
+    spark.udf.register("SIMPLETEST", SpeedTest.SimpleTest _)
     spark.udf.register("AGGTEST", new AggTest)
     spark.udf.register( "SQRT", Sqrt.sqrt _)
     spark.udf.register( "DST", Distance.distance _)
@@ -238,10 +238,10 @@ class GroupOr extends UserDefinedAggregateFunction {
   }
 }
 
-object OtherTest {
-  def othertest(): Int = {
+object SpeedTest {
+  def SimpleTest(): Int = {
     try {
-      8000;
+      9001;
     } catch {
       case _: java.sql.SQLDataException => throw new java.sql.SQLDataException();
     }

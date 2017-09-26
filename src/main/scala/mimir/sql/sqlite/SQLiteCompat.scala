@@ -16,7 +16,7 @@ object SQLiteCompat {
 
   def registerFunctions(conn:java.sql.Connection):Unit = {
     org.sqlite.Function.create(conn,"MIMIRCAST", MimirCast)
-    org.sqlite.Function.create(conn,"OTHERTEST", OtherTest)
+    org.sqlite.Function.create(conn,"SIMPLETEST", SimpleTest)
     org.sqlite.Function.create(conn,"AGGTEST", AggTest)
     org.sqlite.Function.create(conn, "SQRT", Sqrt)
     org.sqlite.Function.create(conn, "DST", Distance)
@@ -204,11 +204,11 @@ object GroupOr extends org.sqlite.Function.Aggregate {
   }
 }
 
-object OtherTest extends org.sqlite.Function {
+object SimpleTest extends org.sqlite.Function {
   @Override
   def xFunc(): Unit = {
     try {
-      result(8000);
+      result(9001);
     } catch {
       case _: java.sql.SQLDataException => throw new java.sql.SQLDataException();
     }
