@@ -65,25 +65,39 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         if(spark == null) {
           throw new SQLException("Trying to use unopened connection!")
         }
-        // convert to operator
-//        val oper = sql.convert(sel)
-        // pull operator apart so that it is split into plain select (no agg) and agg (to be done in spark)
-//        val plainSelect: Seq[String] = optimize(oper,spark)
-//        val sparkSelect: Seq[String] = optimize(oper,sparkAgg)
-        // pass plain to jdbc to get Data Frames
-//        val plainDFSet: Seq[DataFrame] =
 
         val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
-        tableList.foreach((x) => sparkConnection.loadTable(spark,x._1,x._2))
+        tableList.foreach((x) => {
+          tableSchemas.get(x._1.toUpperCase) match {
+            case Some(t) => // do nothing since the table is already loaded, maybe add dirty bit for updates here
+            case None =>
+              sparkConnection.loadTable(spark,x._1,x._2)
+              tableSchemas += x._1.toUpperCase -> spark.table(x._1).schema.fields.toSeq
+          }
+        })
 
-        val df = spark.sql(sel)
-        df.show()
-        new SparkResultSet(df)
       } catch {
         case e: SQLException => println(e.toString+"during\n"+sel)
           throw new SQLException("Error in "+sel, e)
       }
     })
+
+    try {
+      // convert to operator
+      //        val oper = sql.convert(sel)
+      // pull operator apart so that it is split into plain select (no agg) and agg (to be done in spark)
+      //        val plainSelect: Seq[String] = optimize(oper,spark)
+      //        val sparkSelect: Seq[String] = optimize(oper,sparkAgg)
+      // pass plain to jdbc to get Data Frames
+      //        val plainDFSet: Seq[DataFrame] =
+
+      val df = spark.sql(sel)
+//      df.show()
+      new SparkResultSet(df)
+    } catch {
+      case e: SQLException => println(e.toString+"during\n"+sel)
+        throw new SQLException("Error in "+sel, e)
+    }
   }
   def execute(sel: String, args: Seq[PrimitiveValue]): ResultSet =
   {
@@ -160,7 +174,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         throw new SQLException("Trying to use unopened connection!")
       }
 
-      tableSchemas.get(table) match {
+      tableSchemas.get(table.toUpperCase) match {
         case Some(x: Seq[StructField]) => Some(convertToSchema(x))
         case None =>
           var tables: Seq[String] = this.getAllTables().map { (x) => x.toUpperCase }
@@ -174,7 +188,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
             return None
 
 
-          tableSchemas += table -> spark.table(table).schema.fields.toSeq
+          tableSchemas += table.toUpperCase -> spark.table(table).schema.fields.toSeq
           // add the new table and schema to tableSchema list
 
           tableSchemas.get(table) match {
@@ -205,7 +219,6 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
   }
 
   def sparkTypesToMimirTypes(dataType: DataType): Type = {
-    println(dataType)
     dataType match {
       case IntegerType => TInt()
       case LongType => TFloat()

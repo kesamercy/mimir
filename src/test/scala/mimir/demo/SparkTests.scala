@@ -56,13 +56,17 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
 */
 //      val res1: ResultIterator = query("SELECT A FROM R")
 //      val res2: ResultIterator = query("SELECT * FROM R")
-
+/*
+      time("AVERAGE 2M rows",() => {
+        val res3: ResultIterator = query("SELECT AVG(bearing) FROM MTA_RAW")
+      })
+*/
       time("AVERAGE 2M rows",() => {
         val res3: ResultIterator = query("SELECT AVG(bearing) FROM MTA_RAW")
       })
 
-      time("AVERAGE 2M rows",() => {
-        val res3: ResultIterator = query("SELECT AVG(bearing) FROM MTA_RAW")
+      time("Simple UDF Test",() => {
+        val res3: ResultIterator = query("SELECT SUM(SIMPLETEST(bearing)) FROM MTA_RAW")
       })
 //      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
 //      val res4: ResultIterator = query("SELECT * FROM CITYRAW")

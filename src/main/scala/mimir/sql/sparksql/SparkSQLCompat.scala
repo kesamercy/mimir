@@ -12,8 +12,8 @@ import org.apache.spark.sql.Row
 object SparkSQLCompat {
 
   def registerFunctions(spark:org.apache.spark.sql.SparkSession):Unit = {
-    spark.udf.register("MIMIRCAST", MimirCast.mimircast _)
     spark.udf.register("SIMPLETEST", SpeedTest.SimpleTest _)
+/*    spark.udf.register("MIMIRCAST", MimirCast.mimircast _)
     spark.udf.register("AGGTEST", new AggTest)
     spark.udf.register( "SQRT", Sqrt.sqrt _)
     spark.udf.register( "DST", Distance.distance _)
@@ -24,6 +24,7 @@ object SparkSQLCompat {
     spark.udf.register( "FIRST", new First)
     spark.udf.register( "FIRST_INT", new First)
     spark.udf.register( "FIRST_FLOAT", new First)
+*/
   }
   
   def getTableSchema(spark:org.apache.spark.sql.SparkSession, table: String): Option[List[(String, Type)]] =
@@ -239,12 +240,8 @@ class GroupOr extends UserDefinedAggregateFunction {
 }
 
 object SpeedTest {
-  def SimpleTest(): Int = {
-    try {
-      9001;
-    } catch {
-      case _: java.sql.SQLDataException => throw new java.sql.SQLDataException();
-    }
+  def SimpleTest(i:Int): Int = {
+      9001
   }
 }
 
