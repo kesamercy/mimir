@@ -43,17 +43,7 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       val numBs = logData.filter(line => line.contains("b")).count()
       println("Lines with a: %s, Lines with b: %s".format(numAs, numBs))
 */
-/*
-      val logFile = "test/data/ratings1.csv" // Should be some file on your system
-      val conf = new SparkConf().setAppName("Simple Application").setMaster("local[*]")
-      val sc = new SparkContext(conf)
-      val spark = SparkSession
-      .builder()
-      .config(conf)
-      .getOrCreate()
-      
-      spark.read.csv("test/data/ratings1.csv").show()
-*/
+
 //      val res1: ResultIterator = query("SELECT A FROM R")
 //      val res2: ResultIterator = query("SELECT * FROM R")
 /*
@@ -70,6 +60,8 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       })
 //      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
 //      val res4: ResultIterator = query("SELECT * FROM CITYRAW")
+
+      while(true){}
 
       println("done")
       true

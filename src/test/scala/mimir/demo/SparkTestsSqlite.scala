@@ -62,6 +62,10 @@ object SparkTestsSqlite extends SQLTestSpecification("databases/debug",Map("rese
       time("Simple UDF Test",() => {
         val res3: ResultIterator = query("SELECT SUM(SIMPLETEST(bearing)) FROM MTA_RAW")
       })
+
+      time("Simple UDF Test",() => {
+        val res3: ResultIterator = query("SELECT SUM(SIMPLETEST(bearing)) FROM MTA_RAW")
+      })
 //      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
 //      val res4: ResultIterator = query("SELECT * FROM CITYRAW")
 

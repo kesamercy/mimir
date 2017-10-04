@@ -4,6 +4,7 @@ import java.io.File
 
 import mimir.sql.JDBCBackend
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.storage.StorageLevel
 
 sealed trait SparkConnection
 {
@@ -41,11 +42,17 @@ object SparkConnection {
       case sqliteSparkConnection(sqliteBackend) =>
         val sparkConnectionUrl = sqliteBackend.conn.getMetaData.getURL
         val sparkConnectionProperties = new java.util.Properties()
-        val df = spark.read.jdbc(sparkConnectionUrl,s"(SELECT *, ROWID FROM $tableName)",sparkConnectionProperties)
-        if (tableAlias == null)
-          df.createOrReplaceTempView(tableName) // alias has already been checked
-        else
-          df.createOrReplaceTempView(tableAlias)
+        val numberPartitions: Int = 4
+        val tempTableName = tableName + "_TEMP"
+
+        val df = spark.read.jdbc(sparkConnectionUrl,s"(SELECT *, ROWID FROM $tableName)",sparkConnectionProperties)//.repartition(numberPartitions)
+        val level = StorageLevel.MEMORY_AND_DISK
+        df.persist(level)
+
+
+        df.createOrReplaceTempView(tableName) // alias has already been checked
+        //spark.sql(s"CREATE TABLE IF NOT EXISTS $tableName as SELECT * FROM $tempTableName")
+
       case dataframeSparkConnection(dataFrame) => "dataframe"
       case csvSparkConnection(csv) => "csv"
 //      case rddSparkConnection() => "rdd"

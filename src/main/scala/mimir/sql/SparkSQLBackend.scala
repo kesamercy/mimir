@@ -1,4 +1,4 @@
-package mimir.sql;
+package mimir.sql
 
 import java.sql._
 
@@ -15,9 +15,15 @@ import org.apache.spark.sql.types.{DataType, LongType, StructField, IntegerType}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-class SparkSQLBackend(sparkConnection: SparkConnection)
+class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
   extends Backend
 {
+  //  - sparkConnection is the connection to a database, might be extended in the future to an array to support multiple databases or files.
+  //    - Either way it's just a source connection
+  //  - metaDataStore is the place where Mimir's meta-data for lenses is stored
+  //    - On lens query, the meta-data tables will be pushed into spark and then the query will be performed and a result returned
+  //    -
+
 
   var spark: org.apache.spark.sql.SparkSession = null
   var inliningAvailable = false
@@ -27,21 +33,21 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
 
   def open() = {
     this.synchronized({
-      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[2]")
+      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[*]")
       spark = SparkSession
         .builder()
         .config(conf)
         .getOrCreate()
 
       sparkConnection.open()
-      assert(spark != null)
+      metaDataStore.open()
 
-      // register udf's
+      assert(spark != null)
+      assert(metaDataStore != null)
+
+      // register udf's for spark
       SparkSQLCompat.registerFunctions(spark)
 
-      // check the backend for view tables and try to load them
-//      val viewTableList = ListBuffer("MIMIR_VIEWS")
-//      viewTableList.foreach(loadTable(_))
     })
   }
 
@@ -66,14 +72,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
           throw new SQLException("Trying to use unopened connection!")
         }
 
+        // will need to detect non-deterministic queries
+
         val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
         tableList.foreach((x) => {
-          tableSchemas.get(x._1.toUpperCase) match {
-            case Some(t) => // do nothing since the table is already loaded, maybe add dirty bit for updates here
-            case None =>
-              sparkConnection.loadTable(spark,x._1,x._2)
-              tableSchemas += x._1.toUpperCase -> spark.table(x._1).schema.fields.toSeq
-          }
+          loadTableIfNotExists(x._1.toUpperCase())
         })
 
       } catch {
@@ -83,14 +86,6 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
     })
 
     try {
-      // convert to operator
-      //        val oper = sql.convert(sel)
-      // pull operator apart so that it is split into plain select (no agg) and agg (to be done in spark)
-      //        val plainSelect: Seq[String] = optimize(oper,spark)
-      //        val sparkSelect: Seq[String] = optimize(oper,sparkAgg)
-      // pass plain to jdbc to get Data Frames
-      //        val plainDFSet: Seq[DataFrame] =
-
       val df = spark.sql(sel)
 //      df.show()
       new SparkResultSet(df)
@@ -101,12 +96,14 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
   }
   def execute(sel: String, args: Seq[PrimitiveValue]): ResultSet =
   {
-    var sqlStr = sel
-    args.map(arg => {
-      sqlStr = sqlStr.replaceFirst("\\?",getArg(arg))
-      ""
+    this.synchronized({
+      var sqlStr = sel
+      args.map(arg => {
+        sqlStr = sqlStr.replaceFirst("\\?", getArg(arg))
+        ""
+      })
+      execute(sqlStr)
     })
-    execute(sqlStr)
   }
 
   def fixUpdateSqlForSpark(upd: String) : String = {
@@ -167,6 +164,22 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
     })
   }
 
+  def refreshTableSchema(): Unit = {
+    this.synchronized({
+      if (spark == null) {
+        throw new SQLException("Trying to use unopened connection!")
+      }
+      val tables = getAllTables()
+      tables.foreach((table) => {
+        tableSchemas.get(table.toUpperCase()) match {
+          case Some(_) => // do nothing, the table is there, might need to change this to support updates
+          case None =>   // need to add the table to main schema
+            tableSchemas += table.toUpperCase -> spark.table(table.toUpperCase()).schema.fields.toSeq
+        }
+      })
+    })
+  }
+
   def getTableSchema(table: String): Option[Seq[(String, Type)]] =
   {
     this.synchronized({
@@ -174,39 +187,20 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
         throw new SQLException("Trying to use unopened connection!")
       }
 
+      loadTableIfNotExists(table.toUpperCase())
+
       tableSchemas.get(table.toUpperCase) match {
         case Some(x: Seq[StructField]) => Some(convertToSchema(x))
-        case None =>
-          var tables: Seq[String] = this.getAllTables().map { (x) => x.toUpperCase }
-
-          if (!tables.contains(table.toUpperCase)) {
-            sparkConnection.loadTable(spark, table, table) // attempt to load the table
-            tables = this.getAllTables().map { (x) => x.toUpperCase }
-          }
-
-          if (!tables.contains(table.toUpperCase))
-            return None
-
-
-          tableSchemas += table.toUpperCase -> spark.table(table).schema.fields.toSeq
-          // add the new table and schema to tableSchema list
-
-          tableSchemas.get(table) match {
-            case Some(sch) =>
-              return Some(convertToSchema(sch))
-            case None => return None // redundant
-          }
+        case None => None
         }
     })
   }
 
   override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = {
-    tableSchemas.get(table) match {
-      case Some(s) =>
-      case None =>
-        loadTable(table)
-    }
+    loadTableIfNotExists(table.toUpperCase()) // this will probably go away
     val n = name.toUpperCase()
+    // should change to use the metaDataBackend
+    // will need a result set to df function possibly
     val df = spark.sql(s"SELECT query FROM $table WHERE name = '$n'")
     if(df.count() == 0)
       None
@@ -258,17 +252,19 @@ class SparkSQLBackend(sparkConnection: SparkConnection)
   }
 
   def loadTable(table: String): Boolean = {
-    sparkConnection.loadTable(spark,table)
-    spark.catalog.tableExists(table)
+    sparkConnection.loadTable(spark,table.toUpperCase())
+    tableSchemas.contains(table.toUpperCase())
   }
 
-  def checkForTable(table: String): Boolean = {
-    val tableInSpark = spark.catalog.tableExists(table)
+  def loadTableIfNotExists(table: String): Boolean = {
+    val tableInSpark = tableSchemas.contains(table.toUpperCase())
+    var b = false
     if(!tableInSpark){
       // table isn't in spark so try and load table
-      loadTable(table)
+      b = loadTable(table.toUpperCase())
     }
-    spark.catalog.tableExists(table)
+    refreshTableSchema()
+    b
   }
 
   def canHandleVGTerms(): Boolean = inliningAvailable

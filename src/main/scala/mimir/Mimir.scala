@@ -251,7 +251,7 @@ class MimirConfig(arguments: Seq[String]) extends ScallopConf(arguments)
   //   val sampleCount = opt[Int]("samples", noshort = true, default = None)
   val loadTable = opt[String]("loadTable", descr = "Don't do anything, just load a CSV file")
   val dbname = opt[String]("db", descr = "Connect to the database with the specified name",
-    default = Some("debug.db"))
+    default = Some("databases/debug.db"))
   val backend = opt[String]("driver", descr = "Which backend database to use? ([sqlite],oracle)",
     default = Some("sqlite"))
   val precache = opt[String]("precache", descr = "Precache one or more lenses")
