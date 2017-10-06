@@ -1,12 +1,14 @@
 package mimir.sql.sqlite
 
 import mimir.algebra._
-import mimir.util.JDBCUtils
+import mimir.provenance._
+import mimir.util.{JDBCUtils, HTTPUtils, JsonUtils}
 import com.typesafe.scalalogging.slf4j.LazyLogging
 import org.geotools.referencing.datum.DefaultEllipsoid
 import org.joda.time.DateTime
+import com.typesafe.scalalogging.slf4j.LazyLogging
 
-object SQLiteCompat {
+object SQLiteCompat extends LazyLogging{
 
   val INTEGER = 1
   val FLOAT   = 2
@@ -17,6 +19,8 @@ object SQLiteCompat {
   def registerFunctions(conn:java.sql.Connection):Unit = {
     org.sqlite.Function.create(conn,"MIMIRCAST", MimirCast)
     org.sqlite.Function.create(conn,"SIMPLETEST", SimpleTest)
+    org.sqlite.Function.create(conn,"MIMIR_MAKE_ROWID", MimirMakeRowId)
+    org.sqlite.Function.create(conn,"OTHERTEST", OtherTest)
     org.sqlite.Function.create(conn,"AGGTEST", AggTest)
     org.sqlite.Function.create(conn, "SQRT", Sqrt)
     org.sqlite.Function.create(conn, "DST", Distance)
@@ -24,13 +28,33 @@ object SQLiteCompat {
     org.sqlite.Function.create(conn, "MINUS", Minus)
     org.sqlite.Function.create(conn, "GROUP_AND", GroupAnd)
     org.sqlite.Function.create(conn, "GROUP_OR", GroupOr)
+    org.sqlite.Function.create(conn, "GROUP_BITWISE_AND", GroupBitwiseAnd)
+    org.sqlite.Function.create(conn, "GROUP_BITWISE_OR", GroupBitwiseOr)
     org.sqlite.Function.create(conn, "FIRST", First)
-    org.sqlite.Function.create(conn, "FIRST_INT", First)
-    org.sqlite.Function.create(conn, "FIRST_FLOAT", First)
+    org.sqlite.Function.create(conn, "FIRST_INT", FirstInt)
+    org.sqlite.Function.create(conn, "FIRST_FLOAT", FirstFloat)
+    org.sqlite.Function.create(conn, "POSSION", Possion)
+    org.sqlite.Function.create(conn, "GAMMA", Gamma)
+    org.sqlite.Function.create(conn, "STDDEV", StdDev)
+    org.sqlite.Function.create(conn, "MAX", Max)
+    org.sqlite.Function.create(conn, "WEB", Web)
+    org.sqlite.Function.create(conn, "WEBJSON", WebJson)
+    org.sqlite.Function.create(conn, "WEBGEOCODEDISTANCE",WebGeocodeDistance)
+    org.sqlite.Function.create(conn, "METOLOCDST",MeToLocationDistance)
   }
   
-  def getTableSchema(conn:java.sql.Connection, table: String): Option[List[(String, Type)]] =
+  def getTableSchema(conn:java.sql.Connection, table: String): Option[Seq[(String, Type)]] =
   {
+    // Hardcoded table schemas:
+    table.toUpperCase match {
+      case "SQLITE_MASTER" =>
+        return Some(Seq(
+            ("NAME", TString()),
+            ("TYPE", TString())
+          ))
+      case _ => ()
+    }
+
     val stmt = conn.createStatement()
     val ret = stmt.executeQuery(s"PRAGMA table_info('$table')")
     stmt.closeOnCompletion()
@@ -38,7 +62,13 @@ object SQLiteCompat {
       val name = x(1).asString.toUpperCase.trim
       val rawType = x(2).asString.trim
       val baseType = rawType.split("\\(")(0).trim
-      val inferredType = Type.fromString(baseType)
+      val inferredType = try {
+        Type.fromString(baseType)
+      } catch {
+        case e:RAException =>
+          logger.warn(s"While getting schema for table '$table': ${e.getMessage}")
+          TAny()
+      }
       
       // println(s"$name -> $rawType -> $baseType -> $inferredType"); 
 
@@ -46,6 +76,163 @@ object SQLiteCompat {
     })
 
     if(result.hasNext){ Some(result.toList) } else { None }
+  }
+}
+
+object Possion extends org.sqlite.Function with LazyLogging {
+  private var rng: scala.util.Random = new scala.util.Random(
+    java.util.Calendar.getInstance.getTimeInMillis + Thread.currentThread().getId)
+  def poisson_helper(mean:Double):Int = {
+    val L = math.exp(-mean)
+    var k = 0
+    var p = 1.0
+    do {
+        p = p * rng.nextDouble()
+        k+=1
+    } while (p > L)
+    k - 1
+  }
+  override def xFunc(): Unit = {
+    if (args != 1) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR POSSION, EXPECTED 1") }
+    val m = value_double(0)
+    result(poisson_helper(m))
+  }
+
+
+ }
+
+
+object Gamma extends org.sqlite.Function with LazyLogging {
+  private var rng: scala.util.Random = new scala.util.Random(
+    java.util.Calendar.getInstance.getTimeInMillis + Thread.currentThread().getId)
+
+  def sampleGamma(k: Double, theta: Double): Double = {
+    var accept: Boolean = false
+    if (k < 1) {
+// Weibull algorithm
+      val c: Double = (1 / k)
+      val d: Double = ((1 - k) * Math.pow(k, (k / (1 - k))))
+      var u: Double = 0.0
+      var v: Double = 0.0
+      var z: Double = 0.0
+      var e: Double = 0.0
+      var x: Double = 0.0
+      do {
+        u = rng.nextDouble()
+        v = rng.nextDouble()
+        z = -Math.log(u)
+        e = -Math.log(v)
+        x = Math.pow(z, c)
+        if ((z + e) >= (d + x)) {
+          accept = true
+        }
+      } while (!accept);
+      (x * theta)
+    } else {
+// Cheng's algorithm
+      val b: Double = (k - Math.log(4))
+      val c: Double = (k + Math.sqrt(2 * k - 1))
+      val lam: Double = Math.sqrt(2 * k - 1)
+      val cheng: Double = (1 + Math.log(4.5))
+      var u: Double = 0.0
+      var v: Double = 0.0
+      var x: Double = 0.0
+      var y: Double = 0.0
+      var z: Double = 0.0
+      var r: Double = 0.0
+      do {
+        u = rng.nextDouble()
+        v = rng.nextDouble()
+        y = ((1 / lam) * Math.log(v / (1 - v)))
+        x = (k * Math.exp(y))
+        z = (u * v * v)
+        r = (b + (c * y) - x)
+        if ((r >= ((4.5 * z) - cheng)) || (r >= Math.log(z))) {
+          accept = true
+        }
+      } while (!accept);
+      (x * theta)
+    }
+  }
+
+  override def xFunc(): Unit = {
+    if (args != 2) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR GAMMA, EXPECTED 2") }
+    val k = value_double(0)
+    val theta = value_double(1)
+     result(sampleGamma(k, theta))
+  }
+
+
+  }
+
+object Web extends org.sqlite.Function with LazyLogging {
+  override def xFunc(): Unit = {
+    if (args != 1) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR WEB, EXPECTED 1") }
+    val url = value_text(0)
+    try {
+        val content = HTTPUtils.get(url)
+        result(content)
+    } catch {
+        case ioe: java.io.IOException =>  result()
+        case ste: java.net.SocketTimeoutException => result()
+    }
+  }
+}
+
+object WebJson extends org.sqlite.Function with LazyLogging {
+  override def xFunc(): Unit = {
+    if (args != 2 && args != 1) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR WEBJSON, EXPECTED 1 or 2") }
+    val url = value_text(0)
+    try {
+        val content = args match {
+          case 1 => HTTPUtils.getJson(url)
+          case 2 => HTTPUtils.getJson(url, Some(value_text(1)) )
+        }
+        result(content.toString())
+    } catch {
+        case ioe: Exception =>  result()
+    }
+  }
+}
+
+object WebGeocodeDistance extends org.sqlite.Function with LazyLogging {
+  override def xFunc(): Unit = {
+    if (args != 7) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR WebGeocodeDistance, EXPECTED 6") }
+    val lat = value_double(0)
+    val lon = value_double(1)
+    val houseNumber = value_text(2)
+    val streetName = value_text(3)
+    val city = value_text(4)
+    val state = value_text(5)
+    val geocoder = value_text(6)
+    val (url, latPath, lonPath) = geocoder match {
+      case "GOOGLE" => (s"https://maps.googleapis.com/maps/api/geocode/json?address=${s"$houseNumber+${streetName.replaceAll(" ", "+")},+${city.replaceAll(" ", "+")},+$state".replaceAll("\\+\\+", "+")}&key=AIzaSyAKc9sTF-pVezJY8-Dkuvw07v1tdYIKGHk", ".results[0].geometry.location.lat", ".results[0].geometry.location.lng")
+      case "OSM" | _ => (s"http://52.0.26.255/?format=json&street=$houseNumber $streetName&city=$city&state=$state", "[0].lat", "[0].lon")
+    }
+    try {
+        val geoRes = HTTPUtils.getJson(url)
+        val glat = JsonUtils.seekPath( geoRes, latPath).toString().replaceAll("\"", "").toDouble
+        val glon = JsonUtils.seekPath( geoRes, lonPath).toString().replaceAll("\"", "").toDouble
+        result(DefaultEllipsoid.WGS84.orthodromicDistance(lon, lat, glon, glat))
+    } catch {
+        case ioe: Exception =>  {
+          println(ioe.toString())
+          result()
+        }
+    }
+  }
+}
+
+object MeToLocationDistance extends org.sqlite.Function with LazyLogging {
+  var myLat:Option[Double] = None
+  var myLon:Option[Double] = None
+  override def xFunc(): Unit = {
+    if (args != 2) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR MeToLocationDistance, EXPECTED 2") }
+    val lat = myLat.get
+    val lon = myLon.get
+    val otherLat: Double = value_double(0)
+    val otherLon: Double = value_double(1)
+    result(DefaultEllipsoid.WGS84.orthodromicDistance(lon, lat, otherLon, otherLat))
   }
 }
 
@@ -95,16 +282,26 @@ object Sqrt extends org.sqlite.Function with LazyLogging {
   }
 }
 
+object MimirMakeRowId extends org.sqlite.Function {
+
+  @Override
+  def xFunc(): Unit = {
+    result(
+      Provenance.joinRowIds(
+        (0 until args) map { i => RowIdPrimitive(value_text(i)) }
+      ).asString
+    )
+  }
+}
+
 object MimirCast extends org.sqlite.Function with LazyLogging {
 
 
     @Override
-    def xFunc(): Unit = { // 1 is int, double is 2, 3 is string, 5 is null
+    def xFunc(): Unit = {
       if (args != 2) { throw new java.sql.SQLDataException("NOT THE RIGHT NUMBER OF ARGS FOR MIMIRCAST, EXPECTED 2 IN FORM OF MIMIRCAST(COLUMN,TYPE)") }
       try {
-//        println("Input: " + value_text(0) + " : " + value_text(1))
         val t = Type.toSQLiteType(value_int(1))
-//        println("TYPE CASTED: "+t)
         val v = value_text(0)
         logger.trace(s"Casting $v as $t")
         t match {
@@ -124,7 +321,7 @@ object MimirCast extends org.sqlite.Function with LazyLogging {
                  | SQLiteCompat.BLOB    => result(java.lang.Double.parseDouble(value_text(0)))
               case SQLiteCompat.NULL    => result()
             }
-          case TString() | TRowId() | TDate() | TTimeStamp() =>
+          case TString() | TRowId() | TDate() | TTimestamp() =>
             result(value_text(0))
 
           case TUser(name) =>
@@ -133,7 +330,7 @@ object MimirCast extends org.sqlite.Function with LazyLogging {
               Type.rootType(t) match {
                 case TRowId() =>
                   result(value_text(0))
-                case TString() | TDate() | TTimeStamp() =>
+                case TString() | TDate() | TTimestamp() | TInterval()  =>
                   val txt = value_text(0)
                   if(TypeRegistry.matches(name, txt)){
                     result(value_text(0))
@@ -205,6 +402,33 @@ object GroupOr extends org.sqlite.Function.Aggregate {
 }
 
 object SimpleTest extends org.sqlite.Function {
+object GroupBitwiseAnd extends org.sqlite.Function.Aggregate {
+  var agg:Long = 0xffffffffffffffffl
+
+  @Override
+  def xStep(): Unit = {
+    agg = agg & value_int(0)
+  }
+
+  def xFinal(): Unit = {
+    result(agg)
+  }
+}
+
+object GroupBitwiseOr extends org.sqlite.Function.Aggregate {
+  var agg:Long = 0
+
+  @Override
+  def xStep(): Unit = {
+    agg = agg | value_int(0)
+  }
+
+  def xFinal(): Unit = {
+    result(agg)
+  }
+}
+
+object OtherTest extends org.sqlite.Function {
   @Override
   def xFunc(): Unit = {
     try {
@@ -227,28 +451,38 @@ object First extends org.sqlite.Function.Aggregate {
 }
 
 object FirstInt extends org.sqlite.Function.Aggregate {
-  var firstVal: Int = 0;
+  var firstVal: Int = 0
   var empty = true
 
   @Override
   def xStep(): Unit = {
-    if(empty){ firstVal = value_int(0); empty = false }
+    if(empty){
+      if(value_type(0) != SQLiteCompat.NULL) {
+        firstVal = value_int(0)
+        empty = false
+      }
+    }
   }
   def xFinal(): Unit = {
-    if(empty){ result(); } else { result(firstVal); }
+    if(empty){ result() } else { result(firstVal) }
   }
 }
 
 object FirstFloat extends org.sqlite.Function.Aggregate {
-  var firstVal: Double = 0.0;
-  var empty = false
+  var firstVal: Double = 0.0
+  var empty = true
 
   @Override
   def xStep(): Unit = {
-    if(empty){ firstVal = value_double(0); empty = true }
+    if(empty){
+      if(value_type(0) != SQLiteCompat.NULL) {
+        firstVal = value_double(0)
+        empty = false
+      }
+    }
   }
   def xFinal(): Unit = {
-    if(empty){ result(); } else { result(firstVal); }
+    if(empty){ result() } else { result(firstVal) }
   }
 }
 
@@ -262,6 +496,50 @@ object AggTest extends org.sqlite.Function.Aggregate {
 
   def xFinal(): Unit ={
     result(total)
+  }
+}
+
+object StdDev extends org.sqlite.Function.Aggregate {
+
+   var m = 0.0
+   var s = 0.0
+   var k = 1
+
+   @Override
+   def xStep(): Unit ={
+        if(value_type(0) != SQLiteCompat.NULL) {
+          val value = value_double(0)
+          val tM = m
+          m += (value - tM) / k
+          s += (value - tM) * (value - m)
+          k += 1
+        }
+   }
+
+   override def xFinal(): Unit ={
+       //println(s"sdev - xfinal: $k, $s, $m")
+       if(k >= 3)
+            result(math.sqrt(s / (k-2)))
+        else
+            result(0)
+    }
+}
+
+object Max extends org.sqlite.Function.Aggregate {
+
+  var theVal: Double = 0.0
+  var empty = true
+
+  @Override
+  def xStep(): Unit = {
+    if(value_type(0) != SQLiteCompat.NULL) {
+      if(theVal < value_double(0) )
+        theVal = value_double(0)
+      empty = false
+    }
+  }
+  def xFinal(): Unit = {
+    if(empty){ result() } else { result(theVal) }
   }
 }
 

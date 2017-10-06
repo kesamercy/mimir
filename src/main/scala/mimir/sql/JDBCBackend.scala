@@ -15,6 +15,7 @@ import com.typesafe.scalalogging.slf4j.LazyLogging
 class JDBCBackend(val backend: String, val filename: String) 
   extends Backend
   with LazyLogging
+  with InlinableBackend
 {
   var conn: Connection = null
   var openConnections = 0
@@ -24,7 +25,8 @@ class JDBCBackend(val backend: String, val filename: String)
 
   val tableSchemas: scala.collection.mutable.Map[String, Seq[(String, Type)]] = mutable.Map()
 
-  def open() = {
+  def open() =
+  {
     this.synchronized({
       assert(openConnections >= 0)
       if (openConnections == 0) {
@@ -53,6 +55,9 @@ class JDBCBackend(val backend: String, val filename: String)
       openConnections = openConnections + 1
     })
   }
+
+  def invalidateCache() =
+    tableSchemas.clear()
 
   def enableInlining(db: Database): Unit =
   {
@@ -150,7 +155,7 @@ class JDBCBackend(val backend: String, val filename: String)
     })
   }
 
-  def fastUpdateBatch(upd: String, argsList: Iterable[Seq[PrimitiveValue]]): Unit =
+  def fastUpdateBatch(upd: String, argsList: TraversableOnce[Seq[PrimitiveValue]]): Unit =
   {
     this.synchronized({
       if(conn == null) {
@@ -185,7 +190,14 @@ class JDBCBackend(val backend: String, val filename: String)
       }
     })
   }
-  
+  def selectInto(table: String, query: String): Unit =
+  {
+    backend match {
+      case "sqlite" =>
+        update(s"CREATE TABLE $table AS $query")
+    }
+  }
+
   def getTableSchema(table: String): Option[Seq[(String, Type)]] =
   {
     this.synchronized({
@@ -199,7 +211,7 @@ class JDBCBackend(val backend: String, val filename: String)
           val tables = this.getAllTables().map{(x) => x.toUpperCase}
           if(!tables.contains(table.toUpperCase)) return None
 
-          val cols: Option[List[(String, Type)]] = backend match {
+          val cols: Option[Seq[(String, Type)]] = backend match {
             case "sqlite" => {
               // SQLite doesn't recognize anything more than the simplest possible types.
               // Type information is persisted but not interpreted, so conn.getMetaData() 
@@ -234,13 +246,18 @@ class JDBCBackend(val backend: String, val filename: String)
         throw new SQLException("Trying to use unopened connection!")
       }
 
+      val tableNames = new ListBuffer[String]()
       val metadata = conn.getMetaData()
       val tables = backend match {
-        case "sqlite" => metadata.getTables(null, null, "%", null)
-        case "oracle" => metadata.getTables(null, "ARINDAMN", "%", null) // TODO Generalize
+        case "sqlite" => {
+          tableNames.append("SQLITE_MASTER")
+          metadata.getTables(null, null, "%", null)
+        }
+        case "oracle" => {
+          metadata.getTables(null, "ARINDAMN", "%", null) // TODO Generalize
+        }
       }
 
-      val tableNames = new ListBuffer[String]()
 
       while(tables.next()) {
         tableNames.append(tables.getString("TABLE_NAME"))
@@ -260,10 +277,23 @@ class JDBCBackend(val backend: String, val filename: String)
   def canHandleVGTerms(): Boolean = inliningAvailable
 
   def specializeQuery(q: Operator): Operator = {
+  def canHandleVGTerms: Boolean = inliningAvailable
+  def rowIdType: Type =
+    backend match {
+      case "sqlite" => TInt()
+      case _ => TString()
+    }
+  def dateType: Type =
+    backend match {
+      case "sqlite" => TString()
+      case _ => TDate()
+    }
+
+  def specializeQuery(q: Operator, db: Database): Operator = {
     backend match {
       case "sqlite" if inliningAvailable => 
-        VGTermFunctions.specialize(SpecializeForSQLite(q))
-      case "sqlite" => SpecializeForSQLite(q)
+        VGTermFunctions.specialize(SpecializeForSQLite(q, db))
+      case "sqlite" => SpecializeForSQLite(q, db)
       case "oracle" => q
     }
   }
@@ -273,20 +303,39 @@ class JDBCBackend(val backend: String, val filename: String)
     args.zipWithIndex.foreach(a => {
       val i = a._2+1
       a._1 match {
-        case p:StringPrimitive   => stmt.setString(i, p.v)
-        case p:IntPrimitive      => stmt.setLong(i, p.v)
-        case p:FloatPrimitive    => stmt.setDouble(i, p.v)
-        case _:NullPrimitive     => stmt.setNull(i, Types.VARCHAR)
-        case d:DatePrimitive     => stmt.setDate(i, JDBCUtils.convertDate(d))
-        case r:RowIdPrimitive    => stmt.setString(i,r.v)
-        case t:TypePrimitive     => stmt.setString(i, t.t.toString)
+        case p:StringPrimitive    => stmt.setString(i, p.v)
+        case p:IntPrimitive       => stmt.setLong(i, p.v)
+        case p:FloatPrimitive     => stmt.setDouble(i, p.v)
+        case _:NullPrimitive      => stmt.setNull(i, Types.VARCHAR)
+        case d:DatePrimitive      =>
+          backend match {
+            case "sqlite" =>
+              stmt.setString(i, d.asString )
+            case _ =>
+              stmt.setDate(i, JDBCUtils.convertDate(d))
+          }
+        case t:TimestampPrimitive      =>
+          backend match {
+            case "sqlite" =>
+              stmt.setString(i, t.asString )
+            case _ =>
+              stmt.setTimestamp(i, JDBCUtils.convertTimestamp(t))
+          }
+        case t:IntervalPrimitive  =>
+          backend match {
+            case _ => throw new SQLException(s"$backend does not support intervals in prepared statements")
+          }
+        case r:RowIdPrimitive     => stmt.setString(i,r.v)
+        case t:TypePrimitive      => stmt.setString(i, t.t.toString)
+        case BoolPrimitive(true)  => stmt.setInt(i, 1)
+        case BoolPrimitive(false) => stmt.setInt(i, 0)
       }
     })
   }
 
   def setDB(db:Database) = ???
 
-  def listTablesQuery: Operator = 
+  def listTablesQuery: Operator =
   {
     backend match {
       case "sqlite" => 
@@ -320,4 +369,33 @@ class JDBCBackend(val backend: String, val filename: String)
     }
   }
   
+  def insertAndReturnKey(insertSql:String,  args: Seq[PrimitiveValue]) : Long = {
+    try {
+        this.synchronized({
+          if(conn == null)
+            throw new SQLException("Trying to use unopened connection!")
+          val stmt = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS);
+          setArgs(stmt, args)
+          val affectedRows = stmt.executeUpdate();
+          if (affectedRows == 0)
+              throw new SQLException("Insert did not generate any rows.");
+          val generatedKey = try{
+            val generatedKeys = stmt.getGeneratedKeys()
+            if (generatedKeys.next())
+                generatedKeys.getLong(1)
+            else
+                throw new SQLException("No Key Returned.");
+          } catch {
+            case e: SQLException => println(e.toString+"during\n"+insertSql+" <- "+args)
+            throw new SQLException("Error", e)
+          }
+          stmt.close()
+          generatedKey
+        })
+    } catch {
+        case e: SQLException => println(e.toString+"during\n"+insertSql+" <- "+args)
+          throw new SQLException("Error", e)
+      }
+  }
+
 }

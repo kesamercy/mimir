@@ -20,7 +20,7 @@ object WekaModelSpec extends SQLTestSpecification("WekaTest")
     model.reason(idx, List(RowIdPrimitive(row)), List())
   }
   def trueValue(col:String, row:String): PrimitiveValue = {
-    val t = db.getTableSchema("CPUSPEED").get.find(_._1.equals(col)).get._2
+    val t = db.tableSchema("CPUSPEED").get.find(_._1.equals(col)).get._2
     JDBCUtils.extractAllRows(
       db.backend.execute(s"SELECT $col FROM CPUSPEED WHERE ROWID=$row"),
       List(t)
@@ -51,7 +51,7 @@ object WekaModelSpec extends SQLTestSpecification("WekaTest")
       loadCSV("CPUSPEED", new File("test/data/CPUSpeed.csv"))
       models = models ++ WekaModel.train(db, "CPUSPEEDREPAIR", List(
         "BUSSPEEDINMHZ"
-      ), db.getTableOperator("CPUSPEED"))
+      ), db.table("CPUSPEED"))
       models.keys must contain("BUSSPEEDINMHZ")
     }
 
@@ -59,29 +59,26 @@ object WekaModelSpec extends SQLTestSpecification("WekaTest")
       models = models ++ WekaModel.train(db, "CPUSPEEDREPAIR", List(
         "CORES",
         "TECHINMICRONS"
-      ), db.getTableOperator("CPUSPEED"))
+      ), db.table("CPUSPEED"))
       models.keys must contain("CORES", "TECHINMICRONS")
     }
 
     "Make reasonable predictions" >> {
-      val rowids = 
-        queryOneColumn("SELECT ROWID() FROM CPUSPEED").toSeq
-
-      val predictions = 
-        rowids.map {
-          rowid => (
-            predict("CORES", rowid.asString),
-            trueValue("CORES", rowid.asString)
-          )
-        }
-
-      val successes = 
-        predictions.
-          map( x => if(x._1.equals(x._2)){ 1 } else { 0 } ).
-          fold(0)( _+_ )
-
-      successes must be >=(rowids.size / 3)
-
+      queryOneColumn("SELECT ROWID() FROM CPUSPEED"){ result =>
+        val rowids = result.toSeq
+        val predictions = 
+          rowids.map {
+            rowid => (
+              predict("CORES", rowid.asString),
+              trueValue("CORES", rowid.asString)
+            )
+          }
+        val successes = 
+          predictions.
+            map( x => if(x._1.equals(x._2)){ 1 } else { 0 } ).
+            fold(0)( _+_ )
+        successes must be >=(rowids.size / 3)
+      }
     }
 
     "Produce reasonable explanations" >> {
@@ -99,7 +96,7 @@ object WekaModelSpec extends SQLTestSpecification("WekaTest")
       val (model, idx, hints) = WekaModel.train(db,
         "RATINGS1REPAIRED", 
         List("RATING"), 
-        db.getTableOperator("RATINGS1")
+        db.table("RATINGS1")
       )("RATING")
       val nullRow = querySingleton("SELECT ROWID() FROM RATINGS1 WHERE RATING IS NULL")
       model.bestGuess(idx, List(nullRow), List()) must beAnInstanceOf[FloatPrimitive]

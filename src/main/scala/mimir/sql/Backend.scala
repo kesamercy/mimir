@@ -45,19 +45,27 @@ abstract class Backend {
   def update(stmt: String): Unit
   def update(stmt: TraversableOnce[String]): Unit
   def update(stmt: String, args: Seq[PrimitiveValue]): Unit
-  def fastUpdateBatch(stmt: String, argArray: Iterable[Seq[PrimitiveValue]]): Unit
+  def fastUpdateBatch(stmt: String, argArray: TraversableOnce[Seq[PrimitiveValue]]): Unit
+  def selectInto(table: String, query: String): Unit
 
   def getAllTables(): Seq[String]
+  def invalidateCache();
 
   def enableInlining(db: Database): Unit
   def close()
 
-  def canHandleVGTerms(): Boolean
-  def specializeQuery(q: Operator): Operator
+  def canHandleVGTerms: Boolean
+  def rowIdType: Type
+  def dateType: Type
+  def specializeQuery(q: Operator, db: Database): Operator
 
   def setDB(db:Database): Unit
 
   def listTablesQuery: Operator
   def listAttrsQuery: Operator
 
+}
+
+trait InlinableBackend {
+	def enableInlining(db: Database) : Unit
 }

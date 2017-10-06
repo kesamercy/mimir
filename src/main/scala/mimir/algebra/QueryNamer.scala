@@ -2,10 +2,14 @@ package mimir.algebra;
 
 object QueryNamer 
 {
+	def apply(op: Operator) = nameQuery(op)
+
 	def nameQuery(op: Operator): String = 
 	{
 		op match { 
-			case Table(name, alias, _, _) => name
+			case Table(name,alias, _, _) => name
+			case View(name, _, _) => name
+			case AdaptiveView(model, name, _, _) => (model+"_"+name)
 			case Project(cols, src) => 
 				cols.length match {
 					case 1 => cols(0).name+"_FROM_"+nameQuery(src)
@@ -39,6 +43,9 @@ object QueryNamer
 				nameQuery(src)+"_BY_"+cols.flatMap(col => ExpressionUtils.getColumns(col.expression)).mkString("_")
 			case EmptyTable(_) => 
 				"EMPTY_QUERY"
+			case Annotate(src, _) => nameQuery(src)
+			case Recover(src, _) => nameQuery(src)
+			case ProvenanceOf(src) => nameQuery(src)
 		}
 	}
 

@@ -6,18 +6,16 @@ import java.util
 
 import mimir.algebra._
 import mimir.ctables._
-import mimir.exec.ResultIterator
 import mimir.util.RandUtils
-import mimir.{Analysis, Database}
-import moa.classifiers.Classifier
-import moa.core.InstancesHeader
-import weka.core.{Attribute, DenseInstance, Instance, Instances}
-import weka.experiment.{DatabaseUtils, InstanceQueryAdapter}
-import mimir.optimizer.InlineVGTerms
+import mimir.Database
+import mimir.parser._
 import mimir.models._
 
 import scala.collection.JavaConversions._
 import scala.util._
+
+import mimir.ml.spark.{SparkML, Classification}
+  
 
 object PickerLens {
 
@@ -28,34 +26,91 @@ object PickerLens {
     args:Seq[Expression]
   ): (Operator, Seq[Model]) =
   {
-    val operSchema = query.schema
+    val operSchema = db.typechecker.schemaOf(query)
     val schemaMap = operSchema.toMap
+    
     val (pickFromColumns, pickerColTypes ) = args.flatMap {
-      case Var(col) => Some((col, schemaMap(col)))
+      case Function("PICK_FROM", cols ) => 
+        Some( cols.map { case col:Var => (col.name, schemaMap(col.name)) 
+                         case col => throw new RAException(s"Invalid pick_from argument: $col in PickerLens $name (not a column reference)")
+                       } )
       case _ => None
-    }.unzip
+    }.toSeq.flatten.unzip
     
-    val resultColName = "PICK_ONE_" +pickFromColumns.mkString("_") 
+    val pickToCol = args.flatMap {
+      case Function("PICK_AS", Seq(Var(col))) => Some( col )
+      case _ => None
+    } match {
+      case Seq() => "PICK_ONE_" +pickFromColumns.mkString("_") 
+      case x => x.head
+    }
     
-    val pickerModel = new PickerModel(name+"_PICKER_MODEL", resultColName, pickFromColumns, pickerColTypes, query) 
+    val projectedOutPicFromCols = args.flatMap {
+      case Function("HIDE_PICK_FROM", Seq(Var(col))) => Some( col )
+      case _ => None
+    }
+    
+    val classifyUpFront = args.flatMap {
+      case Function("CLASSIFY_UP_FRONT", Seq(bp@BoolPrimitive(b))) => Some( bp )
+      case _ => None
+    } match {
+      case Seq() => true
+      case Seq(BoolPrimitive(b)) => b
+    }
+    
+    def sparkMLInst() : SparkML = {
+      Classification
+    }
+    
+    val useClassifier = args.foldLeft(None:Option[(() => SparkML,SparkML.SparkModelGenerator)])((init, expr) => init match { 
+      case None => expr match {
+        case Function("UEXPRS", exprs) => None
+        case _ => Some((sparkMLInst _, Classification.DecisionTreeMulticlassModel()))
+      }
+      case s@Some(modelGen) => s
+    })
+    val pickerModel = new PickerModel(name+"_PICKER_MODEL:"+pickFromColumns.mkString("_"), pickToCol, pickFromColumns, pickerColTypes, useClassifier, classifyUpFront, query) 
     pickerModel.reconnectToDatabase(db)
+    
+    lazy val expressionSubstitutions : (Expression) => Expression = (expr) => {
+    expr match {
+      case Function("AVG", Seq(Var(col))) => {
+        val exprSubQ = Project(Seq(ProjectArg(s"AVG_$col", expr)), query)
+        db.query(exprSubQ)( results => {
+        var replacementExpr : Expression = NullPrimitive()
+        if(results.hasNext()){
+          replacementExpr = results.next()(0)
+        }
+        results.close()
+        replacementExpr
+        })
+      }
+      case x => x.recur(expressionSubstitutions(_))
+    }
+  }
     
     val pickUncertainExprs : List[(Expression, Expression)] = args.flatMap {
       case Function("UEXPRS", Seq(StringPrimitive(expr), StringPrimitive(resultExpr)) ) => Some( (
-          db.parseExpression(expr), 
-          VGTerm(pickerModel, 0,Seq[Expression](RowIdVar()), Seq(db.parseExpression(resultExpr))) 
+          ExpressionParser.expr(expr), 
+          VGTerm(pickerModel.name, 0,Seq[Expression](RowIdVar()).union(pickFromColumns.map(Var(_))), Seq(expressionSubstitutions(ExpressionParser.expr(resultExpr)))) 
           ) )
       case _ => None
-    }.toList
+    }.toList match {
+      case Seq() => {
+        List((BoolPrimitive(true), VGTerm(pickerModel.name, 0,Seq[Expression](RowIdVar()).union(pickFromColumns.map(Var(_))),Seq()) ))
+      }
+      case x => x 
+    }
     
     val pickCertainExprs : List[(Expression, Expression)] = args.flatMap {
       case Function("EXPRS", Seq(StringPrimitive(expr), StringPrimitive(resultExpr)) ) => Some( (
-          db.parseExpression(expr), 
-          db.parseExpression(resultExpr)
+          ExpressionParser.expr(expr), 
+          expressionSubstitutions(ExpressionParser.expr(resultExpr))
           ) )
       case _ => None
     }.toList
     
+       
     val pickExpr = ExpressionUtils.makeCaseExpression(
           pickCertainExprs.union(pickUncertainExprs),
           NullPrimitive()
@@ -64,17 +119,23 @@ object PickerLens {
     val pickerColsTypeMap = pickFromColumns.zip(pickerColTypes).toMap
     
     val projectArgs = 
-      query.schema.
-        map(_._1).
+      query.columnNames.
         flatMap( col => pickerColsTypeMap.get(col) match {
           case None => Some(ProjectArg(col, Var(col)))
-          case Some(pickFromCol) => None
-        }).union(Seq(ProjectArg(resultColName, pickExpr)))
-
+          case Some(pickFromCol) => {
+            if(projectedOutPicFromCols.contains(col))
+              None //none if you dont want the from cols 
+            else
+              Some(ProjectArg(col, Var(col)))
+          }
+        }).union(Seq(ProjectArg(pickToCol, db.compiler.optimize(pickExpr))))
+    
     return (
       Project(projectArgs, query),
       Seq(pickerModel)
     )
   }
+  
+
 }
 

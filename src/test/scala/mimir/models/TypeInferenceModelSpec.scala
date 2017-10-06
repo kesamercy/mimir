@@ -24,6 +24,7 @@ object TypeInferenceModelSpec extends SQLTestSpecification("TypeInferenceTests")
   {
     model.bestGuess(0, List[PrimitiveValue](), List()) match {
       case TypePrimitive(t) => t
+      case x => throw new RAException(s"Type inference model guessed a non-type primitive: $x")
     }
   }
 
@@ -48,12 +49,12 @@ object TypeInferenceModelSpec extends SQLTestSpecification("TypeInferenceTests")
     "Recognize CPU Cores" >> {
       loadCSV("CPUSPEED", new File("test/data/CPUSpeed.csv"))
       val model = new TypeInferenceModel("CPUSPEED:CORES", Array("CORES"), 0.5)
-      LoggerUtils.debug(List(
+      LoggerUtils.debug(
         //"mimir.models.TypeInferenceModel"
-      ), () => {
+      ){
         model.train(db, table("CPUSPEED"))
         guess(model) must be equalTo(TInt())
-      })
+      }
     }
 
   }

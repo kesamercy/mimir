@@ -8,6 +8,7 @@ import mimir.ctables._
 import mimir.sql._
 import mimir.models._
 import mimir.util.JDBCUtils
+import mimir.util.ExperimentalOptions
 
 class LensManager(db: Database) {
 
@@ -16,10 +17,12 @@ class LensManager(db: Database) {
     "MISSING_VALUE"     -> MissingValueLens.create _,
     "SCHEMA_MATCHING"   -> SchemaMatchingLens.create _,
     "TYPE_INFERENCE"    -> TypeInferenceLens.create _,
-    "KEY_REPAIR"        -> KeyRepairLens.create _,
+    "KEY_REPAIR"        -> RepairKeyLens.create _,
+    "REPAIR_KEY"        -> RepairKeyLens.create _,
     "COMMENT"           -> CommentLens.create _,
     "MISSING_KEY"       -> MissingKeyLens.create _,
-    "PICKER"            -> PickerLens.create _
+    "PICKER"            -> PickerLens.create _,
+    "GEOCODE"           -> GeocodingLens.create _
   )
 
   def init(): Unit =
@@ -31,7 +34,7 @@ class LensManager(db: Database) {
     t: String, 
     name: String, 
     query: Operator, 
-    args: List[Expression]
+    args: Seq[Expression]
   ): Unit =
   {
     val saneName = name.toUpperCase

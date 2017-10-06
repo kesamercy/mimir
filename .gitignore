@@ -2,6 +2,8 @@
 *.log
 *.swp
 *.db
+*.bak
+.DS_Store
 
 # sbt specific
 .cache/
@@ -34,6 +36,18 @@ serialized/*.db/
 databases/noisy.db
 databases/tpch*.db
 
+# Large Data Files
+test/pdbench
+test/tpch
+
 # DBGen
 tpch-dbgen
+
+# Plots
+*.png
+*.pdf
+*.gpl
 /bin/
+
+# Python
+*.pyc

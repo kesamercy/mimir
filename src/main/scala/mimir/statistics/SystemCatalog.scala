@@ -18,14 +18,10 @@ class SystemCatalog(db: Database)
         },
         OperatorUtils.makeUnion(
           Seq(
-            OperatorUtils.projectInColumn(
-              "SOURCE", StringPrimitive("RAW"),
-              db.backend.listTablesQuery
-            ),
-            OperatorUtils.projectInColumn(
-              "SOURCE", StringPrimitive("MIMIR"),
-              db.views.listViewsQuery
-            )
+            db.backend.listTablesQuery
+              .addColumn( "SCHEMA_NAME" -> StringPrimitive("BACKEND") ),
+            db.views.listViewsQuery
+              .addColumn( "SCHEMA_NAME" -> StringPrimitive("MIMIR") )
           )++db.adaptiveSchemas.tableCatalogs
         )
       )
@@ -42,14 +38,10 @@ class SystemCatalog(db: Database)
         },
         OperatorUtils.makeUnion(
           Seq(
-            OperatorUtils.projectInColumn(
-              "SOURCE", StringPrimitive("RAW"),
-              db.backend.listAttrsQuery
-            ),
-            OperatorUtils.projectInColumn(
-              "SOURCE", StringPrimitive("MIMIR"),
-              db.views.listAttrsQuery
-            )
+            db.backend.listAttrsQuery
+              .addColumn( "SCHEMA_NAME" -> StringPrimitive("BACKEND") ),
+            db.views.listAttrsQuery
+              .addColumn( "SCHEMA_NAME" -> StringPrimitive("MIMIR") )
           )++db.adaptiveSchemas.attrCatalogs
         )
       )
@@ -60,8 +52,8 @@ class SystemCatalog(db: Database)
   def apply(name: String): Option[Operator] =
   {
     name match {
-      case "MIMIR_SYS_TABLES" => Some(tableView)
-      case "MIMIR_SYS_ATTRS" => Some(attrView)
+      case ("MIMIR_SYS_TABLES" | "SYS_TABLES") => Some(tableView)
+      case ("MIMIR_SYS_ATTRS"  | "SYS_ATTRS" ) => Some(attrView)
       case _ => None
     }
   }
@@ -74,7 +66,7 @@ object SystemCatalog
   val tableCatalogSchema = 
     Seq( 
       ("TABLE_NAME", TString()),
-      ("SOURCE", TString()) 
+      ("SCHEMA_NAME", TString()) 
     )
   val attrCatalogSchema =
     Seq( 
@@ -82,6 +74,6 @@ object SystemCatalog
       ("ATTR_NAME", TString()),
       ("ATTR_TYPE", TString()),
       ("IS_KEY", TBool()),
-      ("SOURCE", TString()) 
+      ("SCHEMA_NAME", TString()) 
     )
 }

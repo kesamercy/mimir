@@ -2,13 +2,17 @@ package mimir.algebra;
 
 import java.sql._;
 
-import mimir.algebra._
+import mimir.Database
+import mimir.algebra.function._
 import mimir.provenance.Provenance
-import mimir.ctables.{VGTerm, CTables}
-import mimir.optimizer.ExpressionOptimizer
+import mimir.ctables.CTables
+import org.joda.time.Period
 
+class EvalTypeException(msg: String, e: Expression, v: PrimitiveValue) extends Exception
 
-object Eval 
+class Eval(
+  functions: Option[FunctionRegistry] = None
+)
 {
 
   val SAMPLE_COUNT = 100
@@ -32,6 +36,11 @@ object Eval
    * Evaluate the specified expression and cast the result to a Boolean
    */
   def evalBool(e: Expression, bindings: Map[String, PrimitiveValue] = Map[String, PrimitiveValue]()): Boolean =
+    evalBool(e, bindings.get(_))
+  /**
+   * Evaluate the specified expression and cast the result to a Boolean
+   */
+  def evalBool(e: Expression, bindings: (String => Option[PrimitiveValue])): Boolean =
     eval(e, bindings) match {
       case BoolPrimitive(v) => v
 
@@ -53,65 +62,90 @@ object Eval
   def eval(e: Expression, 
            bindings: Map[String, PrimitiveValue]
   ): PrimitiveValue = 
+    eval(e, bindings.get(_))
+
+  /**
+   * Evaluate the specified expression given a set of Var/Value bindings
+   * and return the primitive value of the result
+   */
+  def eval(e: Expression, 
+           bindings: (String => Option[PrimitiveValue])
+  ): PrimitiveValue = 
   {
-    if(e.isInstanceOf[PrimitiveValue]){
-      return e.asInstanceOf[PrimitiveValue]
-    } else {
-      e match {
-        case Var(v) => bindings.get(v) match {
-          case None => throw new SQLException("Variable Out Of Scope: "+v+" (in "+bindings+")");
-          case Some(s) => s
-        }
-
-        // Special case And/Or arithmetic to enable shortcutting
-        case Arithmetic(Arith.And, lhs, rhs) =>
-          eval(lhs, bindings) match {
-            case BoolPrimitive(false) => BoolPrimitive(false)
-            case BoolPrimitive(true) => eval(rhs, bindings)
-            case NullPrimitive() => 
-              eval(rhs, bindings) match {
-                case BoolPrimitive(false) => BoolPrimitive(false)
-                case _ => NullPrimitive()
-              }
-          }
-
-        // Special case And/Or arithmetic to enable shortcutting
-        case Arithmetic(Arith.Or, lhs, rhs) =>
-          eval(lhs, bindings) match {
-            case BoolPrimitive(true) => BoolPrimitive(true)
-            case BoolPrimitive(false) => eval(rhs, bindings)
-            case NullPrimitive() => 
-              eval(rhs, bindings) match {
-                case BoolPrimitive(true) => BoolPrimitive(true)
-                case _ => NullPrimitive()
-              }
-          }
-
-        case Arithmetic(op, lhs, rhs) =>
-          applyArith(op, eval(lhs, bindings), eval(rhs, bindings))
-        case Comparison(op, lhs, rhs) =>
-          applyCmp(op, eval(lhs, bindings), eval(rhs, bindings))
-        case Conditional(condition, thenClause, elseClause) =>
-          if(evalBool(condition, bindings)) { eval(thenClause, bindings) }
-          else                              { eval(elseClause, bindings) }
-        case Not(NullPrimitive()) => NullPrimitive()
-        case Not(c) => BoolPrimitive(!evalBool(c, bindings))
-        case p:Proc => {
-          p.get(p.getArgs.map(eval(_, bindings)))
-        }
-        case IsNullExpression(c) => {
-          val isNull: Boolean = 
-            eval(c, bindings).
-            isInstanceOf[NullPrimitive];
-          return BoolPrimitive(isNull);
-        }
-        case Function(op, params) => {
-          FunctionRegistry.eval(
-            op.toUpperCase, 
-            params.map(eval(_, bindings))
-          )
-        }
+    e match {
+      case p : PrimitiveValue => p
+      case Var(v) => bindings(v) match {
+        case None => throw new RAException("Variable Out Of Scope: "+v+" (in "+bindings+")");
+        case Some(s) => s
       }
+      case RowIdVar() => throw new RAException("Evaluating RowIds in the Interpreter Unsupported")
+      case JDBCVar(t) => throw new RAException("Evaluating JDBCVars in the Interpreter Unsupported")
+      case v:VGTerm => throw new RAException(s"Evaluating VGTerms ($v) in the Interpreter Unsupported")
+      // Special case And/Or arithmetic to enable shortcutting
+      case Arithmetic(Arith.And, lhs, rhs) =>
+        eval(lhs, bindings) match {
+          case BoolPrimitive(false) => BoolPrimitive(false)
+          case BoolPrimitive(true) => eval(rhs, bindings)
+          case NullPrimitive() => 
+            eval(rhs, bindings) match {
+              case BoolPrimitive(false) => BoolPrimitive(false)
+              case NullPrimitive() | BoolPrimitive(_) => NullPrimitive()
+              case r => throw new EvalTypeException("Invalid Right Hand Side (Expected Bool)", e, r)
+            }
+          case r => throw new EvalTypeException("Invalid Left Hand Side (Expected Bool)", e, r)
+
+        }
+
+      // Special case And/Or arithmetic to enable shortcutting
+      case Arithmetic(Arith.Or, lhs, rhs) =>
+        eval(lhs, bindings) match {
+          case BoolPrimitive(true) => BoolPrimitive(true)
+          case BoolPrimitive(false) => eval(rhs, bindings)
+          case NullPrimitive() => 
+            eval(rhs, bindings) match {
+              case BoolPrimitive(true) => BoolPrimitive(true)
+              case NullPrimitive() | BoolPrimitive(_) => NullPrimitive()
+              case r => throw new EvalTypeException("Invalid Right Hand Side (Expected Bool)", e, r)
+            }
+          case r => throw new EvalTypeException("Invalid Left Hand Side (Expected Bool)", e, r)
+        }
+
+      case Arithmetic(op, lhs, rhs) =>
+        Eval.applyArith(op, eval(lhs, bindings), eval(rhs, bindings))
+      case Comparison(op, lhs, rhs) =>
+        Eval.applyCmp(op, eval(lhs, bindings), eval(rhs, bindings))
+      case Conditional(condition, thenClause, elseClause) =>
+        if(evalBool(condition, bindings)) { eval(thenClause, bindings) }
+        else                              { eval(elseClause, bindings) }
+      case Not(NullPrimitive()) => NullPrimitive()
+      case Not(c) => BoolPrimitive(!evalBool(c, bindings))
+      case p:Proc => {
+        p.get(p.getArgs.map(eval(_, bindings)))
+      }
+      case IsNullExpression(c) => {
+        val isNull: Boolean = 
+          eval(c, bindings).
+          isInstanceOf[NullPrimitive];
+        return BoolPrimitive(isNull);
+      }
+      case Function(name, args) => 
+        applyFunction(name.toUpperCase, args.map { eval(_, bindings) })
+    }
+  }
+
+  def applyFunction(name: String, args: Seq[PrimitiveValue]): PrimitiveValue =
+  {
+    functions.flatMap { _.getOption(name) } match {
+      case Some(NativeFunction(_, op, _, _)) => 
+        op(args)
+      case Some(ExpressionFunction(_, argNames, expr)) => 
+        eval(expr, argNames.zip(args).toMap)
+      case Some(FoldFunction(_, expr)) =>
+        args.tail.foldLeft[PrimitiveValue](args.head) { case (curr, next) =>
+          eval(expr, Map("CURR" -> curr, "NEXT" -> next))
+        }
+      case None => 
+        throw new RAException(s"Function $name(${args.mkString(",")}) is undefined")
     }
   }
 
@@ -122,7 +156,7 @@ object Eval
       val bindings = Map[String, IntPrimitive]("__SEED" -> IntPrimitive(i+1))
       val sample =
         try {
-          Eval.eval(exp, bindings).asDouble
+          eval(exp, bindings).asDouble
         } catch {
           case e: Exception => 0.0
         }
@@ -135,55 +169,12 @@ object Eval
     (sum, samples)
   }
 
-  /**
-   * Apply one level of simplification to the passed expression.  Typically
-   * this method should not be used directly, but is invoked as part of
-   * either inline() method.
-   *
-   * If the expression is independent of VGTerms or variable references
-   * then the expression can be deterministically evaluated outright.
-   * In this case, simplify() returns the PrimitiveValue that the 
-   * expression evaluates to.  
-   *
-   * CASE statements are simplified further.  See simplifyCase()
-   */
-  def simplify(e: Expression): Expression = {
-    // println("Simplify: "+e)
-    ExpressionOptimizer.optimize(
-      if(ExpressionUtils.getColumns(e).isEmpty && 
-         !CTables.isProbabilistic(e)) 
-      { 
-        try {
-          eval(e) 
-        } catch {
-          case _:MatchError => 
-            e.rebuild(e.children.map(simplify(_)))
-        }
-      } else e match { 
-        case Conditional(condition, thenClause, elseClause) =>
-          val conditionValue = simplify(condition)
-          if(conditionValue.isInstanceOf[BoolPrimitive]){
-            if(conditionValue.asInstanceOf[BoolPrimitive].v){
-              simplify(thenClause)
-            } else {
-              simplify(elseClause)
-            }
-          } else { e.rebuild(e.children.map(simplify(_))) }
-        case Arithmetic(Arith.And, lhs, rhs) => 
-          ExpressionUtils.makeAnd(simplify(lhs), simplify(rhs))
-        case Arithmetic(Arith.Or, lhs, rhs) => 
-          ExpressionUtils.makeOr(simplify(lhs), simplify(rhs))
-        case _ => e.rebuild(e.children.map(simplify(_)))
-      }
-    )
-  }
 
-  /**
-   * Thoroughly inline an expression, recursively applying simplify()
-   * at levels, to all subtrees of the expression.
-   */
-  def inline(e: Expression): Expression = 
-    inline(e, Map[String, Expression]())
+}
+
+object Eval 
+{
+
   /**
    * Apply a given variable binding to the specified expression, and then
    * thoroughly inline it, recursively applying simplify() at all levels,
@@ -194,19 +185,7 @@ object Eval
   {
     e match {
       case Var(v) => bindings.get(v).getOrElse(Var(v))
-      case _ => 
-        simplify( e.rebuild( e.children.map( inline(_, bindings) ) ) )
-
-    }
-  }
-
-  def inlineWithoutSimplifying(e: Expression, bindings: Map[String,Expression]):
-    Expression =
-  {
-    e match {
-      case Var(v) => bindings.get(v).getOrElse(Var(v))
-      case _ => 
-        e.rebuild( e.children.map( inlineWithoutSimplifying(_, bindings) ) ) 
+      case _ => e.recur(inline(_, bindings))
     }
   }
   
@@ -216,28 +195,101 @@ object Eval
   def applyArith(op: Arith.Op, 
             a: PrimitiveValue, b: PrimitiveValue
   ): PrimitiveValue = {
-    (op, Typechecker.escalate(
-      a.getType, b.getType, "Evaluate Arithmetic", Arithmetic(op, a, b)
+    val aRoot = Type.rootType(a.getType)
+    val bRoot = Type.rootType(b.getType)
+
+    (op, aRoot, bRoot,
+      Typechecker.escalate(
+      aRoot, bRoot, op, "Evaluate Arithmetic", Arithmetic(op, a, b)
     )) match { 
-      case (Arith.Add, TInt()) => 
+      case (Arith.Add, _, _, TInt()) => 
         IntPrimitive(a.asLong + b.asLong)
-      case (Arith.Add, TFloat()) => 
+      case (Arith.Add, _, _, TFloat()) => 
         FloatPrimitive(a.asDouble + b.asDouble)
-      case (Arith.Sub, TInt()) => 
+      case (Arith.Sub, _, _, TInt()) => 
         IntPrimitive(a.asLong - b.asLong)
-      case (Arith.Sub, TFloat()) => 
+      case (Arith.Sub, _, _, TFloat()) => 
         FloatPrimitive(a.asDouble - b.asDouble)
-      case (Arith.Mult, TInt()) => 
+      case (Arith.Mult, _, _, TInt()) => 
         IntPrimitive(a.asLong * b.asLong)
-      case (Arith.Mult, TFloat()) => 
+      case (Arith.Mult, _, _, TFloat()) => 
         FloatPrimitive(a.asDouble * b.asDouble)
-      case (Arith.Div, (TFloat()|TInt())) => 
+      case (Arith.Div, _, _, TInt()) => 
+        IntPrimitive(a.asLong / b.asLong)
+      case (Arith.Div, _, _, TFloat()) => 
         FloatPrimitive(a.asDouble / b.asDouble)
-      case (_, _) => 
-        throw new RAException(s"Invalid Arithmetic $a $op $b")
+      case (Arith.BitAnd, _, _, TInt()) =>
+        IntPrimitive(a.asLong & b.asLong)
+      case (Arith.BitOr, _, _, TInt()) =>
+        IntPrimitive(a.asLong | b.asLong)
+      case (Arith.ShiftLeft, _, _, TInt()) =>
+        IntPrimitive(a.asLong << b.asLong)
+      case (Arith.ShiftRight, _, _, TInt()) =>
+        IntPrimitive(a.asLong >> b.asLong)
+      case (Arith.And, _, _, TBool()) =>
+        BoolPrimitive(a.asBool && b.asBool)
+      case (Arith.Or, _, _, TBool()) =>
+        BoolPrimitive(a.asBool || b.asBool)
+
+      case (Arith.Add, TInterval(), TInterval(), _) =>
+        IntervalPrimitive(a.asInterval.plus(b.asInterval))
+      case (Arith.Sub, TInterval(), TInterval(), _) =>
+        IntervalPrimitive(a.asInterval.minus(b.asInterval))
+      case (Arith.Sub, TDate() | TTimestamp(), TDate() | TTimestamp(), _) =>
+        IntervalPrimitive(new Period(b.asDateTime, a.asDateTime))
+
+      case (Arith.Add, TDate(), TInterval(), _) =>
+        val d = a.asDateTime.plus(b.asInterval)
+        DatePrimitive(d.getYear,d.getMonthOfYear,d.getDayOfMonth)
+      case (Arith.Add, TInterval(), TDate(), _) =>
+        val d = b.asDateTime.plus(a.asInterval)
+        DatePrimitive(d.getYear,d.getMonthOfYear,d.getDayOfMonth)
+      case (Arith.Sub, TDate(), TInterval(), _) =>
+        val d = a.asDateTime.minus(b.asInterval)
+        DatePrimitive(d.getYear,d.getMonthOfYear,d.getDayOfMonth)
+
+      case (Arith.Add, TTimestamp(), TInterval(), _) =>
+        val d = a.asDateTime.plus(b.asInterval)
+        TimestampPrimitive(d.getYear,d.getMonthOfYear,d.getDayOfMonth,d.getHourOfDay,d.getMinuteOfHour,d.getSecondOfMinute,d. getMillisOfSecond)
+      case (Arith.Add, TInterval(), TTimestamp(), _) =>
+        val d = b.asDateTime.plus(a.asInterval)
+        TimestampPrimitive(d.getYear,d.getMonthOfYear,d.getDayOfMonth,d.getHourOfDay,d.getMinuteOfHour,d.getSecondOfMinute,d. getMillisOfSecond)
+      case (Arith.Sub, TTimestamp(), TInterval(), _) =>
+        val d = a.asDateTime.minus(b.asInterval)
+        TimestampPrimitive(d.getYear,d.getMonthOfYear,d.getDayOfMonth,d.getHourOfDay,d.getMinuteOfHour,d.getSecondOfMinute,d. getMillisOfSecond)
+
+      case (Arith.Mult, TInterval(), TInt() | TFloat(), _) =>
+        IntervalPrimitive(a.asInterval.multipliedBy(b.asInt))
+      case (Arith.Mult, TInt() | TFloat(), TInterval(), _) =>
+        IntervalPrimitive(b.asInterval.multipliedBy(a.asInt))
+      case (Arith.Div, TInterval(), TInt() | TFloat(), _) => 
+        throw new RAException("Division not quite yet supported")
+
+      case _ => 
+        throw new RAException(s"Invalid Arithmetic $a ${Arith.opString(op)} $b")
     }
   }
 
+  private final def cmpScaffold(a: PrimitiveValue, b: PrimitiveValue, op: Cmp.Op)(intOp: ((Long, Long) => Boolean))(floatOp: ((Double, Double) => Boolean))(cmpOp: (Int => Boolean)): BoolPrimitive =
+  {
+    BoolPrimitive(
+      Typechecker.leastUpperBound(a.getType, b.getType) match {
+        case Some(TInt()) => intOp(a.asLong, b.asLong)
+        case Some(TFloat()) => floatOp(a.asDouble, b.asDouble)
+        case Some(TDate()) =>
+          cmpOp(
+            a.asInstanceOf[DatePrimitive].
+             compareTo(b.asInstanceOf[DatePrimitive])
+          )
+        case Some(TTimestamp()) =>
+          cmpOp(
+            a.asInstanceOf[TimestampPrimitive].
+             compareTo(b.asInstanceOf[TimestampPrimitive])
+          )
+        case _ => throw new RAException(s"Invalid Comparison $a ${Cmp.opString(op)} $b")
+      }
+    )
+  }
   /**
    * Perform a comparison on two primitive values.
    */
@@ -254,58 +306,13 @@ object Eval
         case Cmp.Neq => 
           BoolPrimitive(!a.payload.equals(b.payload))
         case Cmp.Gt => 
-          Typechecker.escalate(a.getType, b.getType, "Eval", Comparison(op, a, b)) match {
-            case TInt() => BoolPrimitive(a.asLong > b.asLong)
-            case TFloat() => BoolPrimitive(a.asDouble > b.asDouble)
-            case TDate() =>
-              BoolPrimitive(
-                a.asInstanceOf[DatePrimitive].
-                 compare(b.asInstanceOf[DatePrimitive])<0
-              )
-            case _ => throw new RAException("Invalid Comparison $a $op $b")
-          }
+          cmpScaffold(a, b, op){ _ > _ }{ _ > _ }{ _ < 0 }
         case Cmp.Gte => 
-          Typechecker.escalate(a.getType, b.getType, "Eval", Comparison(op, a, b)) match {
-            case TInt() => BoolPrimitive(a.asLong >= b.asLong)
-            case TFloat() => BoolPrimitive(a.asDouble >= b.asDouble)
-            case TDate() =>
-              BoolPrimitive(
-                a.asInstanceOf[DatePrimitive].
-                 compare(b.asInstanceOf[DatePrimitive])<=0
-              )
-            case TBool() => BoolPrimitive(a match {
-              case BoolPrimitive(true) => true
-              case BoolPrimitive(false) => {
-                b match {
-                  case BoolPrimitive(true) => false
-                  case _ => true
-                }
-              }
-            })
-            case _ => throw new RAException("Invalid Comparison $a $op $b")
-          }
+          cmpScaffold(a, b, op){ _ >= _ }{ _ >= _ }{ _ <= 0 }
         case Cmp.Lt => 
-          Typechecker.escalate(a.getType, b.getType, "Eval", Comparison(op, a, b)) match {
-            case TInt() => BoolPrimitive(a.asLong < b.asLong)
-            case TFloat() => BoolPrimitive(a.asDouble < b.asDouble)
-            case TDate() =>
-              BoolPrimitive(
-                a.asInstanceOf[DatePrimitive].
-                 compare(b.asInstanceOf[DatePrimitive])>0
-              )
-            case _ => throw new RAException("Invalid Comparison $a $op $b")
-          }
+          cmpScaffold(a, b, op){ _ < _ }{ _ < _ }{ _ > 0 }
         case Cmp.Lte => 
-          Typechecker.escalate(a.getType, b.getType, "Eval", Comparison(op, a, b)) match {
-            case TInt() => BoolPrimitive(a.asLong <= b.asLong)
-            case TFloat() => BoolPrimitive(a.asDouble <= b.asDouble)
-            case TDate() =>
-              BoolPrimitive(
-                a.asInstanceOf[DatePrimitive].
-                 compare(b.asInstanceOf[DatePrimitive])>=0
-              )
-            case _ => throw new RAException("Invalid Comparison $a $op $b")
-          }
+          cmpScaffold(a, b, op){ _ <= _ }{ _ <= _ }{ _ >= 0 }
       }
     }
   }

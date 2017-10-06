@@ -6,6 +6,7 @@ import mimir.Database
 import mimir.models._
 import mimir.algebra._
 import mimir.ctables._
+import mimir.parser._
 
 object CommentLens {
   def create(
@@ -15,32 +16,52 @@ object CommentLens {
     args:Seq[Expression]
   ): (Operator, Seq[Model]) =
   {
-    val schema = query.schema
-    val schemaMap = schema.toMap
-    val colComments = args.
-        map(field => {
-          val split = Eval.evalString(field).split(";", 2)
-          val varName  = split(0).toUpperCase
-          val varComment = split(1)
-          (
-            varName.toString.toUpperCase -> 
-              varComment.toString
-          )
-        })
-    val colCommentMap = colComments.toMap    
-    val colCommentLists = colCommentMap.toSeq.unzip 
-    val argTypesAndExprs = colComments.zipWithIndex.map(arg => {
-         val commexpr = db.operator.expr(arg._1._1)
-         ((commexpr, arg._2), ("COMMENT_ARG_"+arg._2, Typechecker.typeOf(commexpr, query)))
-    }).unzip
+    val colComments = args.flatMap {
+      case Function("COMMENT", cols ) => 
+        Some( cols match {
+            case Seq(vcol@Var(col), StringPrimitive(comment)) => (vcol, comment)
+            case Seq(expr:Expression, StringPrimitive(comment)) => (expr, comment)
+            case x => throw new RAException(s"No or bad comments specified for $name: $x")
+          } )
+      case _ => None
+    }.toSeq 
+  
+    val modelName = name + ":"+colComments.map(_._1)
+        .mkString("_")
+        .replaceAll("[ ,'\"()\\[\\]~!@#$%^&*<>?/\\|{}=;.-]", "")
+        + Math.abs(colComments.mkString("_").hashCode())
+  
+    val resultCols = args.flatMap {
+      case Function("RESULT_COLUMNS", cols:(Seq[Var] @unchecked)) => Some( cols.map(_.name) )
+      case _ => None
+    }.flatten
+    
+    val argTypesAndExprs = colComments.zipWithIndex.map {
+      case ((expr, comment), index) => {
+        val outputCol = 
+          if(resultCols.length > index)
+            resultCols(index)
+          else
+            "COMMENT_ARG_"+index
+        (
+          ProjectArg(outputCol, VGTerm(modelName, index, Seq(RowIdVar()), Seq(expr))),
+          (outputCol, db.typechecker.typeOf(expr, query)),
+          comment
+        )
+      }
+    }.unzip3
+    
     val modelSchema = argTypesAndExprs._2.unzip
-    val model : CommentModel = new CommentModel(name, modelSchema._1, modelSchema._2, colCommentLists._2)
+    val model = new CommentModel(
+      modelName, 
+      modelSchema._1, 
+      modelSchema._2, 
+      argTypesAndExprs._3
+    )
     val projArgs =  
-      query.schema.map(_._1).map( col => {
+      query.columnNames.map( col => {
           ProjectArg(col, Var(col))
-      }).union(
-          argTypesAndExprs._1.map(comExpr => ProjectArg("COMMENT_ARG_"+comExpr._2, VGTerm(model, comExpr._2, Seq(comExpr._1), Seq()) ))
-      )
+      }).union( argTypesAndExprs._1)
     val oper = Project(projArgs, query)
     return (
       oper,

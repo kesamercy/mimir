@@ -23,14 +23,15 @@ object LoadCSV extends StrictLogging {
 
   def SAMPLE_SIZE = 10000
 
-  def handleLoadTable(db: Database, targetTable: String, sourceFile: File): Unit =
-    handleLoadTable(db, targetTable, sourceFile, true)
+  // def handleLoadTable(db: Database, targetTable: String, sourceFile: File): Unit =
+  //   handleLoadTable(db, targetTable, sourceFile, Map())
 
-  def handleLoadTable(db: Database, targetTable: String, sourceFile: File, assumeHeader: Boolean){
+  def handleLoadTable(db: Database, targetTable: String, sourceFile: File, options: Map[String,String] = Map()){
     val input = new FileReader(sourceFile)
+    val assumeHeader = options.getOrElse("HEADER", "YES").equals("YES")
 
     // Allocate the parser, and make its iterator scala-friendly
-    val parser = new NonStrictCSVParser(input)
+    val parser = new NonStrictCSVParser(input, options)
 
     // Pull out the header if appropriate
     val header: Seq[String] = 
@@ -44,12 +45,15 @@ object LoadCSV extends StrictLogging {
     // Produce a schema --- either one already exists, or we need
     // to generate one.
     val targetSchema = 
-      db.getTableSchema(targetTable) match {
+      db.tableSchema(targetTable) match {
         case Some(sch) => sch
         case None => {
 
           val idxToCol: Map[Int, String] = 
-            header.zipWithIndex.map( x => (x._2, x._1) ).toMap
+            header.zipWithIndex.map { x => 
+              if(x._1.equals("")){ (x._2, s"COLUMN_${x._2}")}
+              else { (x._2, x._1) }
+            }.toMap
 
           logger.debug(s"HEADER_MAP: $idxToCol")
 
@@ -98,6 +102,7 @@ object LoadCSV extends StrictLogging {
       replaceAll("^([0-9])","COLUMN_\1").  // Prefix leading digits with a 'COL_'
       replaceAll("[^a-zA-Z0-9]+", "_").    // Replace sequences of non-alphanumeric characters with underscores
       replaceAll("_+$", "").               // Strip trailing underscores
+      replaceAll("^_+", "").               // Strip leading underscores
       toUpperCase                          // Capitalize
   }
 
@@ -138,41 +143,39 @@ object LoadCSV extends StrictLogging {
     val cmd = "INSERT INTO " + targetTable + "(" + keys + ") VALUES (" + sch.map(x=>"?").mkString(",") + ")"
 
     logger.trace("BEGIN IMPORT")
-    TimeUtils.monitor(s"Import CSV: $targetTable <- $sourceFile",
-      () => {
-        db.backend.fastUpdateBatch(cmd, rows.view.map({ record => 
-          if(record.recordNumber % 100000 == 0){
-            logger.info(s"Loaded ${record.recordNumber} records...")
-          }
-          val data = record.fields.
-            take(numberOfColumns).
-            padTo(numberOfColumns, "").
-            map( _.trim ).
-            zip(sch).
-            map({ case (value, (col, t)) =>
-              if(value == null || value.equals("")) { NullPrimitive() }
-              else {
-                if(!Type.matches(Type.rootType(t), value))
-                {
-                  logger.warn(s"fileName:${record.lineNumber}: $col ($t) on is unparseable '$value', using null instead");
-                  NullPrimitive()
-                } else {
-                  TextUtils.parsePrimitive(t, value)
-                }
+    TimeUtils.monitor(s"Import CSV: $targetTable <- $sourceFile", logger.info(_)){
+      db.backend.fastUpdateBatch(cmd, rows.view.map({ record => 
+        if(record.recordNumber % 100000 == 0){
+          logger.info(s"Loaded ${record.recordNumber} records...")
+        }
+        val data = record.fields.
+          take(numberOfColumns).
+          padTo(numberOfColumns, "").
+          map( _.trim ).
+          zip(sch).
+          map({ case (value, (col, t)) =>
+            if(value == null || value.equals("")) { NullPrimitive() }
+            else {
+              if(!Type.matches(Type.rootType(t), value))
+              {
+                logger.warn(s"$sourceFile:${record.lineNumber}: $col ($t) on is unparseable '$value', using null instead");
+                NullPrimitive()
+              } else {
+                TextUtils.parsePrimitive(t, value)
               }
-            })
+            }
+          })
 
-          logger.trace(s"INSERT (line ${record.lineNumber}): $cmd \n <- $data")
-          data
-        }))
-      },
-      logger.info(_)
-    )
+        logger.trace(s"INSERT (line ${record.lineNumber}): $cmd \n <- $data")
+        record.fields = null
+        data
+      }))
+    }
 
   }
 }
 
-case class MimirCSVRecord(fields: Seq[String], lineNumber: Long, recordNumber: Long, comment: Option[String])
+case class MimirCSVRecord(var fields: Seq[String], lineNumber: Long, recordNumber: Long, comment: Option[String])
 
 /**
  * A wrapper around the Apache Commons CSVParser that can recover from malformed data.
@@ -189,11 +192,18 @@ case class MimirCSVRecord(fields: Seq[String], lineNumber: Long, recordNumber: L
  *  - Swap out CSVParser with a different off-the-shelf parser (e.g., Spark has a few)
  *  - Write our own CSVParser.
  */
-class NonStrictCSVParser(in:Reader)
+class NonStrictCSVParser(in:Reader, options: Map[String,String] = Map())
   extends Iterator[MimirCSVRecord]
   with StrictLogging
 {
-  val format = CSVFormat.DEFAULT.withAllowMissingColumnNames()
+  var format = CSVFormat.DEFAULT.withAllowMissingColumnNames()
+  options.get("DELIMITER") match {
+    case None => ()
+    case Some(delim) => {
+      logger.debug(s"Using Delimiter ${delim.charAt(0)}")
+      format = format.withDelimiter(delim.charAt(0))
+    }
+  }
   val parser = new CSVParser(in, format)
   val iter = parser.iterator.asScala
   var record: Option[(Seq[String], Option[String])] = None

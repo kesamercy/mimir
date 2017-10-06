@@ -1,18 +1,23 @@
 package mimir.util
 
-import java.io.Reader
+import java.io.{Reader,File}
 import org.jline.terminal.{Terminal,TerminalBuilder}
 import org.jline.reader.{LineReader,LineReaderBuilder,EndOfFileException,UserInterruptException}
 import com.typesafe.scalalogging.slf4j.LazyLogging
 
-class LineReaderInputSource(
-  val input: LineReader = LineReaderBuilder.builder().terminal(TerminalBuilder.terminal()).build()
-)
+class LineReaderInputSource(terminal: Terminal)
   extends Reader
   with LazyLogging
 {
-  var pos: Int = -1;
-  var curr: String = null;
+  private val historyFile = System.getProperty("user.home") + File.separator + ".mimir_history"
+  val input: LineReader = 
+    LineReaderBuilder.
+      builder().
+      terminal(terminal).
+      variable(LineReader.HISTORY_FILE, historyFile).
+      build()
+  var pos: Int = 1;
+  var curr: String = "";
 
   def close() = input.getTerminal.close
   def read(cbuf: Array[Char], offset: Int, len: Int): Int =
@@ -21,9 +26,10 @@ class LineReaderInputSource(
       var i:Int = 0;
       logger.debug(s"being asked for $len characters")
       while(i < len){
-        while(curr == null || pos >= curr.length){
+        while(pos >= curr.length){
           if(i > 0){ logger.debug(s"returning $i characters"); return i; }
           curr = input.readLine("mimir> ")
+          if(curr == null){ logger.debug("Reached end"); return -1; }
           logger.debug(s"Read: '$curr'")
           pos = 0;
         }

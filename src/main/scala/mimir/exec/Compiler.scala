@@ -2,226 +2,202 @@ package mimir.exec
 
 
 import java.sql._
+import org.slf4j.{LoggerFactory}
 import com.typesafe.scalalogging.slf4j.LazyLogging
+import scala.util.Random
+import com.github.nscala_time.time.Imports._
 
 import mimir.Database
 import mimir.algebra.Union
 import mimir.algebra._
 import mimir.ctables._
 import mimir.optimizer._
+import mimir.optimizer.operator._
+import mimir.optimizer.expression._
 import mimir.provenance._
+import mimir.exec.result._
+import mimir.exec.mode._
+import mimir.exec.uncertainty._
+import mimir.util._
 import net.sf.jsqlparser.statement.select._
+import mimir.gprom.algebra.OperatorTranslation
 
 class Compiler(db: Database) extends LazyLogging {
 
-  def standardOptimizations: List[Operator => Operator] = List(
-    ProjectRedundantColumns(_),
-    InlineProjections(_),
-    PushdownSelections(_),
-    PropagateEmptyViews(_)
-  )
+  def operatorOptimizations: Seq[OperatorOptimization] =
+    Seq(
+      ProjectRedundantColumns,
+      InlineProjections,
+      PushdownSelections,
+      new PropagateEmptyViews(db.typechecker),
+      PropagateConditions,
+      new OptimizeExpressions(optimize(_:Expression)),
+      PartitionUncertainJoins,
+      PullUpUnions
+    )
+
+  def expressionOptimizations: Seq[ExpressionOptimizerRule] =
+    Seq(
+      PullUpBranches,
+      new FlattenTrivialBooleanConditionals(db.typechecker),
+      // FlattenBooleanConditionals,
+      RemoveRedundantCasts,
+      PushDownNots,
+      new SimplifyExpressions(db.interpreter, db.functions)
+    )
+
+  val rnd = new Random
 
   /**
-   * Perform a full end-end compilation pass.  Return an iterator over
-   * the result set.
+   * Perform a full end-end compilation pass producing best guess results.  
+   * Return an iterator over the result set.  
    */
-  def compile(oper: Operator): ResultIterator =
-    compile(oper, standardOptimizations)
+  def compile[R <:ResultIterator](query: Operator, mode: CompileMode[R]): R =
+    mode(db, query)
 
-  /**
-   * Perform a full end-end compilation pass.  Return an iterator over
-   * the result set.  Use only the specified list of optimizations.
-   */
-  def compile(rawOper: Operator, opts: List[Operator => Operator]): ResultIterator = 
+  def deploy(
+    compiledOper: Operator, 
+    outputCols: Seq[String]
+  ): ResultIterator =
   {
-    // Recursively expand all view tables using mimir.optimizer.ResolveViews
-    var oper = ResolveViews(db, rawOper)
+    var oper = compiledOper
+    val isAnOutputCol = outputCols.toSet
 
-    logger.debug(s"RAW: $oper")
-    
-    // We'll need the pristine pre-manipulation schema down the line
-    // As a side effect, this also forces the typechecker to run, 
-    // acting as a sanity check on the query before we do any serious
-    // work.
-    val outputSchema = oper.schema;
+    // Optimize
+    oper = optimize(oper)
 
-    // The names that the provenance compilation step assigns will
-    // be different depending on the structure of the query.  As a 
-    // result it is **critical** that this be the first step in 
-    // compilation.  
-    val provenance = Provenance.compile(oper)
-    oper               = provenance._1
-    val provenanceCols = provenance._2
+    // Run a final typecheck to check the sanitity of the rewrite rules
+    val schema = db.typechecker.schemaOf(oper)
+    logger.debug(s"SCHEMA: $schema.mkString(", ")")
+
+    // Strip off the final projection operator
+    val extracted = OperatorUtils.extractProjections(oper)
+    val projections = extracted._1.map { col => (col.name -> col) }.toMap
+    oper            = extracted._2
+
+    val annotationCols =
+      projections.keys.filter( !isAnOutputCol(_) )
+
+    val requiredColumns = 
+      projections.values
+        .map(_.expression)
+        .flatMap { ExpressionUtils.getColumns(_) }
+        .toSet
+
+    val (agg: Option[(Seq[Var], Seq[AggFunction])], unionClauses: Seq[Operator]) = 
+      DecomposeAggregates(oper, db.typechecker) match {
+        case Aggregate(gbCols, aggCols, src) => 
+          (Some((gbCols, aggCols)), OperatorUtils.extractUnionClauses(src))
+        case _ => 
+          (None, OperatorUtils.extractUnionClauses(oper))
+      }
+      
+    if(unionClauses.size > 1 && ExperimentalOptions.isEnabled("AVOID-IN-SITU-UNIONS")){
+
+      val requiredColumnsInOrder = 
+        agg match {
+          case None => 
+            requiredColumns.toSeq
+          case Some((gbCols, aggFunctions)) => 
+            gbCols.map { _.name } ++ 
+            aggFunctions
+              .flatMap { _.args }
+              .flatMap { ExpressionUtils.getColumns(_) }
+              .toSet.toSeq
+        }
+      val sourceColumnTypes = db.typechecker.schemaOf(unionClauses(0)).toMap
 
 
-    // Tag rows/columns with provenance metadata
-    val tagging = CTPercolator.percolateLite(oper)
-    oper               = tagging._1
-    val colDeterminism = tagging._2
-    val rowDeterminism = tagging._3
+      val nested = unionClauses.map { deploy(_, requiredColumnsInOrder) }
+      val jointIterator = new UnionResultIterator(nested.iterator)
 
-    // The deterministic result set iterator should strip off the 
-    // provenance columns.  Figure out which columns need to be
-    // kept.  Note that the order here actually matters.
-    val tagPlusOutputSchemaNames = 
-      outputSchema.map(_._1).toList ++
-        colDeterminism.toList.flatMap( x => ExpressionUtils.getColumns(x._2)) ++ 
-        ExpressionUtils.getColumns(rowDeterminism)
+      val aggregateIterator =
+        agg match {
+          case None => 
+            jointIterator
+          case Some((gbCols, aggFunctions)) => 
+            new AggregateResultIterator(
+              gbCols, 
+              aggFunctions,
+              requiredColumnsInOrder.map { col => (col, sourceColumnTypes(col)) },
+              jointIterator,
+              db
+            )
+        }
+      return new ProjectionResultIterator(
+        outputCols.map( projections(_) ),
+        annotationCols.map( projections(_) ).toSeq,
+        db.typechecker.schemaOf(oper),
+        aggregateIterator, 
+        db
+      )
 
-    logger.debug(s"PRE-OPTIMIZED: $oper")
+    } else {
+      // Make the set of columns we're interested in explicitly part of the query
+      oper = oper.project( requiredColumns.toSeq:_* )
 
-    // Clean things up a little... make the query prettier, tighter, and 
-    // faster
-    oper = optimize(oper, opts)
+      val (sql, sqlSchema) = sqlForBackend(oper)
 
-    logger.debug(s"OPTIMIZED: $oper")
+      logger.info(s"PROJECTIONS: $projections")
 
-    // Replace VG-Terms with their "Best Guess values"
-    oper = bestGuessQuery(oper)
+      new ProjectionResultIterator(
+        outputCols.map( projections(_) ),
+        annotationCols.map( projections(_) ).toSeq,
+        sqlSchema,
+        new JDBCResultIterator(
+          sqlSchema,
+          sql, db.backend,
+          db.backend.dateType
+        ),
+        db
+      )
+    }
+  }
 
-    logger.debug(s"GUESSED: $oper")
+  def sqlForBackend(
+    oper: Operator
+  ): 
+    (SelectBody, Seq[(String,Type)]) =
+  {
+    val optimized = { 
+      if(ExperimentalOptions.isEnabled("GPROM-OPTIMIZE")
+        && db.backend.isInstanceOf[mimir.sql.GProMBackend] ) {
+        OperatorTranslation.optimizeWithGProM(oper)
+      } else { 
+        optimize(oper)
+      }
+    }
+    //val optimized =  Compiler.optimize(oper, opts)
 
-    // We'll need it a few times, so cache the final operator's schema.
-    // This also forces the typechecker to run, so we get a final sanity
-    // check on the output of the rewrite rules.
-    val finalSchema = oper.schema
+    logger.debug(s"PRE-SPECIALIZED: $oper")
 
     // The final stage is to apply any database-specific rewrites to adapt
     // the query to the quirks of each specific target database.  Each
     // backend defines a specializeQuery method that handles this
-    oper = db.backend.specializeQuery(oper)
+    val specialized = db.backend.specializeQuery(optimized, db)
 
-    logger.debug(s"FINAL: $oper")
+    logger.info(s"SPECIALIZED: $specialized")
 
-    // We'll need to line the attributes in the output up with
-    // the order in which the user expects to see them.  Build
-    // a lookup table with name + position in the query being execed.
-    val finalSchemaOrderLookup = 
-      finalSchema.map(_._1).zipWithIndex.toMap
-
-    logger.debug(s"SCHEMA: $finalSchema")
-
-    // Generate the SQL
-    val sql = db.ra.convert(oper)
-
-    logger.debug(s"SQL: $sql")
-
-    // Deploy to the backend
-    val results = 
-      db.backend.execute(sql)
-
-    // And wrap the results.
-    new NonDetIterator(
-      new ResultSetIterator(results, 
-        finalSchema.toMap,
-        tagPlusOutputSchemaNames.map(finalSchemaOrderLookup(_)), 
-        provenanceCols.map(finalSchemaOrderLookup(_))
-      ),
-      outputSchema,
-      outputSchema.map(_._1).map(colDeterminism(_)), 
-      rowDeterminism
-    )
-  }
-  
-  case class VirtualizedQuery(
-    query: Operator,
-    visibleSchema: Seq[(String, Type)],
-    colDeterminism: Map[String, Expression],
-    rowDeterminism: Expression,
-    provenance: Seq[String]
-  )
-  
-  /** 
-   * The body of the end-end compilation pass.  Return a marked-up version of the
-   * query.  This part should be entirely superceded by GProM.
-   */
-  def virtualize(rawOper: Operator, opts: List[Operator => Operator]): VirtualizedQuery =
-  {
-    // Recursively expand all view tables using mimir.optimizer.ResolveViews
-    var oper = ResolveViews(db, rawOper)
-
-    logger.debug(s"RAW: $oper")
+    logger.info(s"SCHEMA: ${oper.columnNames.mkString(", ")} -> ${optimized.columnNames.mkString(", ")}")
     
-    // We'll need the pristine pre-manipulation schema down the line
-    // As a side effect, this also forces the typechecker to run, 
-    // acting as a sanity check on the query before we do any serious
-    // work.
-    val visibleSchema = oper.schema;
+    // Generate the SQL
+    val sql = db.ra.convert(specialized)
 
-    // The names that the provenance compilation step assigns will
-    // be different depending on the structure of the query.  As a 
-    // result it is **critical** that this be the first step in 
-    // compilation.  
-    val provenance = Provenance.compile(oper)
-    oper               = provenance._1
-    val provenanceCols = provenance._2
+    logger.info(s"SQL: $sql")
 
-
-    // Tag rows/columns with provenance metadata
-    val tagging = CTPercolator.percolateLite(oper)
-    oper               = tagging._1
-    val colDeterminism = tagging._2
-    val rowDeterminism = tagging._3    
-
-    logger.debug(s"PRE-OPTIMIZED: $oper")
-
-    // Clean things up a little... make the query prettier, tighter, and 
-    // faster
-    oper = optimize(oper, opts)
-
-    logger.debug(s"OPTIMIZED: $oper")
-
-    // Replace VG-Terms with their "Best Guess values"
-    oper = bestGuessQuery(oper)
-
-    logger.debug(s"GUESSED: $oper")
-
-    VirtualizedQuery(
-      oper, 
-      visibleSchema,
-      colDeterminism,
-      rowDeterminism,
-      provenanceCols
-    )
+    return (sql, db.typechecker.schemaOf(optimized))
   }
+  
+  // case class VirtualizedQuery(
+  //   query: Operator,
+  //   visibleSchema: Seq[(String, Type)],
+  //   colDeterminism: Map[String, Expression],
+  //   rowDeterminism: Expression,
+  //   provenance: Seq[String]
+  // )
 
-  /**
-   * Remove all VGTerms in the query and replace them with the 
-   * equivalent best guess values
-   */
-  def bestGuessQuery(oper: Operator): Operator =
-  {
-    // Remove any VG Terms for which static best-guesses are possible
-    // In other words, best guesses that don't depend on which row we're
-    // looking at (like the Type Inference or Schema Matching lenses)
-    val mostlyDeterministicOper =
-      InlineVGTerms(oper)
+  def optimize(query: Operator) = Optimizer.optimize(query, operatorOptimizations)
 
-    // Deal with the remaining VG-Terms.  
-    if(db.backend.canHandleVGTerms()){
-      // The best way to do this would be a database-specific "BestGuess" 
-      // UDF if it's available.
-      return mostlyDeterministicOper
-    } else {
-      // Unfortunately, this UDF may not always be available, so if needed
-      // we fall back to the Guess Cache
-      val fullyDeterministicOper =
-        db.bestGuessCache.rewriteToUseCache(mostlyDeterministicOper)
-
-      return fullyDeterministicOper
-    }
-  }
-
-  /**
-   * Optimize the query
-   */
-  def optimize(oper: Operator): Operator = 
-    optimize(oper, standardOptimizations)
-
-  /**
-   * Optimize the query
-   */
-  def optimize(oper: Operator, opts: List[Operator => Operator]): Operator =
-    opts.foldLeft(oper)((o, fn) => fn(o))
-
+  def optimize(e: Expression): Expression = Optimizer.optimize(e, expressionOptimizations)
 }
+

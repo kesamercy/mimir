@@ -7,7 +7,8 @@ import mimir.models._
 import mimir.algebra._
 import mimir.ctables._
 import net.sf.jsqlparser.statement.select.Select
-import mimir.optimizer.ResolveViews
+import mimir.exec.result.Row
+import mimir.util.JDBCUtils
 
 object MissingKeyLens {
   def create(
@@ -20,12 +21,12 @@ object MissingKeyLens {
     val schema = db.bestGuessSchema(query)
     val schemaMap = schema.toMap
     var missingOnly = false;
-    var sortCols = Seq[SortColumn]()
+    var sortCols = Seq[(String, Boolean)]()
     val keys: Seq[(String, Type)] = args.flatMap {
       case Var(col) => {
         if(schemaMap contains col){ Some((col, schemaMap(col))) }
         else {
-          throw new SQLException(s"Invalid column: $col in KeyRepairLens $name")
+          throw new RAException(s"Invalid column: $col in KeyRepairLens $name")
         }
       }
       case Function("MISSING_ONLY", Seq(Var(bool))) => {
@@ -35,15 +36,18 @@ object MissingKeyLens {
         }
         None
       }
-      case Function("SORT", cols:Seq[Var]) => {
-        sortCols = cols.map(col => {
-          if(!schemaMap.contains(col.name))
-            throw new SQLException(s"Invalid sort column: $col in KeyRepairLens $name")
-          SortColumn(col, true) 
-        })
+      case Function("SORT", cols) => {
+        sortCols = cols.map { 
+          case col:Var => 
+            if(!schemaMap.contains(col.name))
+              throw new RAException(s"Invalid sort column: $col in KeyRepairLens $name (not a column in the input)")
+            (col.name, true) 
+          case col => 
+            throw new RAException(s"Invalid sort column: $col in KeyRepairLens $name (not a column reference)")
+        }
         None
       }
-      case somethingElse => throw new SQLException(s"Invalid argument ($somethingElse) for MissingKeyLens $name")
+      case somethingElse => throw new RAException(s"Invalid argument ($somethingElse) for MissingKeyLens $name")
     }
     val rSch = schema.filter(p => !keys.contains(p))
     val seriesTableName = name.toUpperCase()+"_SERIES"
@@ -66,15 +70,14 @@ object MissingKeyLens {
           query
         )
        )
-      val minMaxForSeries = db.query(seriesTableMinMaxOper)
-      minMaxForSeries.open()
-      minMaxForSeries.getNext()
-      val minMax = (
-      minMaxForSeries(0).asDouble.toLong,
-      minMaxForSeries(1).asDouble.toLong
-      )
-      minMaxForSeries.close()
-      db.backend.fastUpdateBatch(s"INSERT INTO $seriesTableName VALUES(?)", (minMax._1 to minMax._2).toSeq.map( i => Seq(IntPrimitive(i))))
+      db.query(seriesTableMinMaxOper)(minMaxForSeries => {
+        val row = minMaxForSeries.next()
+        val minMax = (
+          row(0).asDouble.toLong,
+          row(1).asDouble.toLong
+        )
+        db.backend.fastUpdateBatch(s"INSERT INTO $seriesTableName VALUES(?)", (minMax._1 to minMax._2).toSeq.map( i => Seq(IntPrimitive(i))))
+      })
     }
     if(!allTables.contains(keysTableName)){
       val projArgsKeys =  
@@ -83,10 +86,13 @@ object MissingKeyLens {
         })
       var keysOper : Operator = Project(projArgsKeys, query)             
       println(keysOper)
-      val results = db.compiler.compile(keysOper, List())
+
       val createKeysTableSql = s"CREATE TABLE $keysTableName(${keys.map(kt => kt._1 +" "+ kt._2.toString()).mkString(",")})"
       db.update(db.stmt(createKeysTableSql))
-      db.backend.fastUpdateBatch(s"INSERT INTO $keysTableName VALUES(${keys.map(kt => "?").mkString(",")})", results.allRows())
+      val results = 
+        db.query(keysOper) { _.map { _.tuple }.toIndexedSeq }
+     
+      db.backend.fastUpdateBatch(s"INSERT INTO $keysTableName VALUES(${keys.map(kt => "?").mkString(",")})", results)
     }
     if(!allTables.contains(missingKeysTableName)){
       val lTalebName = seriesTableName
@@ -106,24 +112,29 @@ object MissingKeyLens {
                     Comparison(Cmp.Eq, Var("rght_"+keys.head._1), Var("lft_"+keys.head._1))
                   ))
       val sql = db.ra.convert(missingKeysOper)
-      val results = new mimir.exec.ResultSetIterator(db.backend.execute(sql), 
-        keys.toMap,
-        keys.zipWithIndex.map(_._2), 
-        Seq()
-      )
+      val results = {
+        val resSet = db.backend.execute(sql)
+        var theResults = Seq[Seq[PrimitiveValue]]()
+          while(resSet.next()){
+              theResults = theResults.union( Seq(keys.zipWithIndex.map( key => {
+                JDBCUtils.convertField(key._1._2, resSet, key._2+1)
+              })))
+          }
+        theResults.iterator
+      }
       val createMissingKeysTableSql = s"CREATE TABLE $missingKeysTableName(${keys.map(kt => kt._1 +" "+ kt._2.toString()).mkString(",")})"
       db.update(db.stmt(createMissingKeysTableSql))
-      db.backend.fastUpdateBatch(s"INSERT INTO $missingKeysTableName VALUES(${keys.map(kt => "?").mkString(",")})", results.allRows())
+      db.backend.fastUpdateBatch(s"INSERT INTO $missingKeysTableName VALUES(${keys.map(kt => "?").mkString(",")})", results)
     
     }
     val colsTypes = keys.unzip
-    val model = new MissingKeyModel(name,colsTypes._1, colsTypes._2.union(rSch.map(_ => TAny())))
+    val model = new MissingKeyModel(name+":"+ keys.unzip._1.mkString("_"),colsTypes._1, colsTypes._2.union(rSch.map(sche => sche._2)))
     
     val projArgs =  
         keys.map(_._1).zipWithIndex.map( col => {
-            ProjectArg(col._1, VGTerm(model, col._2, Seq(Var(col._1)), Seq()))
+            ProjectArg(col._1, VGTerm(model.name, col._2, Seq(RowIdVar()), Seq(Var(col._1))))
         }).union(rSch.map(_._1).zipWithIndex.map( col => {
-            ProjectArg(col._1,  VGTerm(model, keys.length+col._2, Seq(NullPrimitive()), Seq()))
+            ProjectArg(col._1,  VGTerm(model.name, keys.length+col._2, Seq(RowIdVar()), Seq(NullPrimitive())))
         }))
     
     val missingKeysOper = Project(projArgs, Table(missingKeysTableName,missingKeysTableName,keys,List()))
@@ -133,7 +144,7 @@ object MissingKeyLens {
     }
     val oper = {
       if(sortCols.isEmpty) allOrMissingOper;
-      else Sort(sortCols, allOrMissingOper);
+      else allOrMissingOper.sort(sortCols:_*);
     }
     (
       oper,

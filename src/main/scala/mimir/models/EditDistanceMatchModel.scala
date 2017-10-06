@@ -4,8 +4,6 @@ import scala.util._
 import com.typesafe.scalalogging.slf4j.Logger
 import mimir.Database
 import mimir.algebra._
-import mimir.ctables.VGTerm
-import mimir.optimizer.{InlineVGTerms}
 import mimir.util.RandUtils
 import org.apache.lucene.search.spell.{
   JaroWinklerDistance, LevensteinDistance, NGramDistance, 
@@ -70,7 +68,7 @@ object EditDistanceMatchModel
   }
 }
 
-@SerialVersionUID(1000L)
+@SerialVersionUID(1001L)
 class EditDistanceMatchModel(
   name: String,
   metricName: String,
@@ -119,7 +117,7 @@ class EditDistanceMatchModel(
   }
 
   def reason(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): String = {
-    choices.get(idx) match {
+    choices(idx) match {
       case None => {
         val sourceName = colMapping.maxBy(_._2)._1
         val targetName = target._1
@@ -129,20 +127,20 @@ class EditDistanceMatchModel(
 
       case Some(NullPrimitive()) => {
         val targetName = target._1
-        s"You told me that nothing maps to $targetName"
+        s"${getReasonWho(idx,args)} told me that nothing maps to $targetName"
       }
 
       case Some(choicePrim) => {
         val targetName = target._1
         val choiceStr = choicePrim.asString
-        s"You told me that $choiceStr maps to $targetName"
+        s"${getReasonWho(idx,args)} told me that $choiceStr maps to $targetName"
       }
     }
   }
 
   def bestGuess(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): PrimitiveValue = 
   {
-    choices.get(idx) match { 
+    choices(idx) match { 
       case None => {
         if(colMapping.isEmpty){
           NullPrimitive()

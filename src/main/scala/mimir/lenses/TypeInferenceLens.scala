@@ -6,7 +6,6 @@ import com.typesafe.scalalogging.slf4j.LazyLogging
 import mimir.Database
 import mimir.algebra._
 import mimir.ctables._
-import mimir.exec.ResultIterator
 import mimir.models._
 
 object TypeInferenceLens extends LazyLogging
@@ -19,7 +18,7 @@ object TypeInferenceLens extends LazyLogging
   ): (Operator, Seq[Model]) =
   {
     val modelColumns = 
-      query.schema.map({
+      db.bestGuessSchema(query).map({
         case (col, (TString() | TAny())) => Some(col)
         case _ => None
       }).flatten.toIndexedSeq
@@ -37,7 +36,7 @@ object TypeInferenceLens extends LazyLogging
       new TypeInferenceModel(
         name,
         modelColumns,
-        Eval.evalFloat(args(0))
+        db.interpreter.evalFloat(args(0))
       )
 
     val columnIndexes = 
@@ -47,12 +46,12 @@ object TypeInferenceLens extends LazyLogging
     model.train(db, query)
 
     val repairs = 
-      query.schema.map(_._1).map( col => {
+      query.columnNames.map( col => {
         if(columnIndexes contains col){
           ProjectArg(col, 
             Function("CAST", Seq(
               Var(col),
-              VGTerm(model, columnIndexes(col), Seq(), Seq())
+              VGTerm(model.name, columnIndexes(col), Seq(), Seq())
             ))
           )
         } else {

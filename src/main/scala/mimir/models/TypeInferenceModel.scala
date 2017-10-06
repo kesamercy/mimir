@@ -18,7 +18,8 @@ object TypeInferenceModel
     case TInt()       => 10
     case TBool()      => 10
     case TDate()      => 10
-    case TTimeStamp() => 10
+    case TTimestamp() => 10
+    case TInterval() => 10
     case TType()      => 10
     case TFloat()     => 5
     case TString()    => 0
@@ -37,13 +38,14 @@ object TypeInferenceModel
   }
 }
 
-@SerialVersionUID(1000L)
+@SerialVersionUID(1001L)
 class TypeInferenceModel(name: String, columns: IndexedSeq[String], defaultFrac: Double)
   extends Model(name)
   with DataIndependentFeedback
   with NoArgModel
   with FiniteDiscreteDomain
 {
+  var sampleLimit = 1000
   var totalVotes = 
     { val v = new scala.collection.mutable.ArraySeq[Double](columns.length)
       for(col <- (0 until columns.size)){ v.update(col, 0.0) }
@@ -56,18 +58,15 @@ class TypeInferenceModel(name: String, columns: IndexedSeq[String], defaultFrac:
 
   def train(db: Database, query: Operator) =
   {
-    TimeUtils.monitor(s"Train $name",
-      () => {
-        db.query(
-          Project(
-            columns.map( c => ProjectArg(c, Var(c)) ),
-            query
-          )
-        ).
-        foreachRow( row => learn(row.currentRow) )
-      },
-      TypeInferenceModel.logger.info(_)
-    )
+    TimeUtils.monitor(s"Train $name", TypeInferenceModel.logger.info(_)){
+      db.query(
+        Limit(0, Some(sampleLimit), Project(
+          columns.map( c => ProjectArg(c, Var(c)) ),
+          query
+        ))
+      ) { _.foreach { row => learn(row.tuple)  } }
+    }
+    TypeInferenceModel.logger.debug(s"VOTES:${columns.zip(votes).map { col => "\n   "+col._1+": "+col._2.map { vote => "\n      "+vote._1+"->"+vote._2 }}}")
   }
 
   final def learn(row: Seq[PrimitiveValue]):Unit =
@@ -88,7 +87,7 @@ class TypeInferenceModel(name: String, columns: IndexedSeq[String], defaultFrac:
   {
     totalVotes(idx) += 1.0
     val candidates = TypeInferenceModel.detectType(v)
-    TypeInferenceModel.logger.debug(s"Guesses for '$v': $candidates")
+    TypeInferenceModel.logger.trace(s"Guesses for '$v': $candidates")
     val votesForCurrentIdx = votes(idx)
     for(t <- candidates){
       votesForCurrentIdx(t) = votesForCurrentIdx.getOrElse(t, 0.0) + 1.0 
@@ -109,10 +108,9 @@ class TypeInferenceModel(name: String, columns: IndexedSeq[String], defaultFrac:
 
   def bestGuess(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): PrimitiveValue = 
   {
-    choices.get(idx) match {
+    choices(idx) match {
       case None => {
         val guess = voteList(idx).maxBy( rankFn _ )._1
-        TypeInferenceModel.logger.debug(s"Votes($idx): ${voteList(idx)} -> $guess")
         TypePrimitive(guess)
       }
       case Some(s) => Cast(TType(), s)
@@ -124,7 +122,7 @@ class TypeInferenceModel(name: String, columns: IndexedSeq[String], defaultFrac:
 
 
   def reason(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): String = {
-    choices.get(idx) match {
+    choices(idx) match {
       case None => {
         val (guess, guessVotes) = voteList(idx).maxBy( rankFn _ )
         val defaultPct = (defaultFrac * 100).toInt
@@ -139,11 +137,11 @@ class TypeInferenceModel(name: String, columns: IndexedSeq[String], defaultFrac:
             case _ => 
               s"around $guessPct% of the data fit"
           }
-        s"I guessed that ${columns(idx)} was of type $typeStr because $reason"
+        s"I guessed that $name.${columns(idx)} was of type $typeStr because $reason"
       }
       case Some(t) =>
         val typeStr = Cast(TType(), t).toString.toUpperCase
-        s"You told me that ${columns(idx)} was of type $typeStr"
+        s"${getReasonWho(idx,args)} told me that $name.${columns(idx)} was of type $typeStr"
     }
   }
 

@@ -1,8 +1,9 @@
 package mimir.util
 
+import com.typesafe.scalalogging.slf4j.LazyLogging
 import mimir.algebra._
 
-object TextUtils {
+object TextUtils extends LazyLogging {
 
   def parsePrimitive(t: Type, s: String): PrimitiveValue = 
   {
@@ -10,7 +11,8 @@ object TextUtils {
       case TInt()    => IntPrimitive(java.lang.Long.parseLong(s))
       case TFloat()  => FloatPrimitive(java.lang.Double.parseDouble(s))
       case TDate()   => parseDate(s)
-      case TTimeStamp() => parseTimeStamp(s)
+      case TTimestamp() => parseTimestamp(s)
+      case TInterval() => parseInterval(s)
       case TString() => StringPrimitive(s)
       case TBool()   => 
         s.toUpperCase match {
@@ -24,32 +26,54 @@ object TextUtils {
     }
   }
 
+  val dateRegexp = "(\\d+)-(\\d+)-(\\d+)".r
+  val timestampRegexp = "(\\d+)-(\\d+)-(\\d+) (\\d+):(\\d+):(\\d+|\\d+[.]\\d*)".r
+  val intervalRegexp = "P(\\d+)Y(\\d+)M(\\d+)W(\\d+)DT(\\d+)H(\\d+)M(\\d+|\\d+[.]\\d*)S".r
+
   def parseDate(s: String): PrimitiveValue =
   {
-    try {
-      val fields = s.split("-").map( Integer.parseInt(_) )
-      DatePrimitive(fields(0), fields(1), fields(2))
-    } catch {
-      case n: NumberFormatException => NullPrimitive()
+    logger.trace(s"Parse Date: '$s'")
+    s match {
+      case dateRegexp(y, m, d) => 
+        logger.trace(s"   -> $y-$m-$d  -> ${DatePrimitive(y.toInt, m.toInt, d.toInt)}")
+        DatePrimitive(y.toInt, m.toInt, d.toInt)
+      case _ => NullPrimitive()
     }
   }
 
-  def parseTimeStamp(s: String): PrimitiveValue =
+  def parseTimestamp(s: String): PrimitiveValue =
   {
-    try {
-      var initialFields = s.split("-") // format is YYYY-MM-DD hh:mm:ss
-      val tempDayField = initialFields(2).split(" ") // timeStampFields(2) should be DD hh:mm:ss
-      val tempTimeFields = tempDayField(1).split(":") //tempDayField(1) should be hh:mm:ss
-      initialFields(2) = tempDayField(0)
-      initialFields = initialFields ++ tempTimeFields
-
-      val timeStampFields = initialFields.map(_.toInt)
-
-      TimestampPrimitive(timeStampFields(0), timeStampFields(1), timeStampFields(1),
-                      timeStampFields(1), timeStampFields(1), timeStampFields(1))
-    } catch {
-      case n: NumberFormatException => NullPrimitive()
+    logger.trace(s"Parse Timestamp: '$s'")
+    s match {
+      case timestampRegexp(yr, mo, da, hr, mi, se) => 
+        val seconds = se.toDouble
+        TimestampPrimitive(yr.toInt, mo.toInt, da.toInt, hr.toInt, mi.toInt, seconds.toInt, (seconds*1000).toInt % 1000)
+      case _ => NullPrimitive()
     }
   }
 
+  def parseInterval(s: String): PrimitiveValue =
+  {
+    logger.trace(s"Parse Interval: '$s'")
+    s match {
+      case intervalRegexp(y, m, w, d, hh, mm, se) => 
+        val seconds = se.toDouble
+        IntervalPrimitive(new org.joda.time.Period(y.toInt, m.toInt, w.toInt, d.toInt, hh.toInt, mm.toInt, seconds.toInt, (seconds * 1000).toInt % 1000))
+      case _ => NullPrimitive()
+    }
+  }
+  
+  object Levenshtein {
+    def minimum(i1: Int, i2: Int, i3: Int)=scala.math.min(scala.math.min(i1, i2), i3)
+    def distance(s1:String, s2:String)={
+      val dist=Array.tabulate(s2.length+1, s1.length+1){(j,i)=>if(j==0) i else if (i==0) j else 0}
+ 
+      for(j<-1 to s2.length; i<-1 to s1.length)
+         dist(j)(i)=if(s2(j-1)==s1(i-1)) dist(j-1)(i-1)
+	            else minimum(dist(j-1)(i)+1, dist(j)(i-1)+1, dist(j-1)(i-1)+1)
+ 
+      dist(s2.length)(s1.length)
+    }
+  }
 }
+

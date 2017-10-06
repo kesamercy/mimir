@@ -16,15 +16,19 @@ import scala.collection.mutable.ListBuffer
 import mimir.gprom.MimirGProMMetadataPlugin
 import org.gprom.jdbc.driver.GProMConnection
 import org.gprom.jdbc.jna.GProMWrapper
+import com.sun.jna.Native
 
-class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) extends Backend
+class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) 
+  extends Backend
+  with InlinableBackend
 {
   var conn: Connection = null
   var unwrappedConn: org.sqlite.SQLiteConnection = null
   var openConnections = 0
   var inliningAvailable = false
   //var gpromMetadataPlugin : MimirGProMMetadataPlugin = null
-
+  var metadataLookupPlugin : GProMMedadataLookup = null
+  
   def driver() = backend
 
   val tableSchemas: scala.collection.mutable.Map[String, Seq[(String, Type)]] = mutable.Map()
@@ -42,6 +46,8 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
 
   def open() = {
     this.synchronized({
+      Native.setProtected(true)
+      println(s"GProM Library running in protected mode: ${Native.isProtected()}")
       assert(openConnections >= 0)
       if (openConnections == 0) {
         conn = backend match {
@@ -62,6 +68,12 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
             //gpromMetadataPlugin = new MimirGProMMetadataPlugin()
             unwrappedConn = c.unwrap[org.sqlite.SQLiteConnection]( classOf[org.sqlite.SQLiteConnection])
             SQLiteCompat.registerFunctions( unwrappedConn )
+            metadataLookupPlugin = new GProMMedadataLookup(c)
+            GProMWrapper.inst.setupPlugins(c, metadataLookupPlugin.getPlugin) 
+            //GProMWrapper.inst.setBoolOption("pi_cs_use_composable", true)
+           // GProMWrapper.inst.setBoolOption("pi_cs_rewrite_agg_window", false)
+           // GProMWrapper.inst.setBoolOption("cost_based_optimizer", false)
+           // GProMWrapper.inst.setBoolOption("optimization.remove_unnecessary_window_operators", true)
             c
           case "oracle" =>
             Methods.getConn()
@@ -208,7 +220,7 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
     })
   }
 
-  def fastUpdateBatch(upd: String, argsList: Iterable[Seq[PrimitiveValue]]): Unit =
+  def fastUpdateBatch(upd: String, argsList: TraversableOnce[Seq[PrimitiveValue]]): Unit =
   {
     this.synchronized({
       if(conn == null) {
@@ -267,7 +279,7 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
           val tables = this.getAllTables().map{(x) => x.toUpperCase}
           if(!tables.contains(table.toUpperCase)) return None
 
-          val cols: Option[List[(String, Type)]] = backend match {
+          val cols: Option[Seq[(String, Type)]] = backend match {
             case "sqlite" => {
               // SQLite doesn't recognize anything more than the simplest possible types.
               // Type information is persisted but not interpreted, so conn.getMetaData()
@@ -323,11 +335,11 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
 
   def canHandleVGTerms(): Boolean = inliningAvailable
 
-  def specializeQuery(q: Operator): Operator = {
+  def specializeQuery(q: Operator, db: Database): Operator = {
     backend match {
       case "sqlite" if inliningAvailable =>
-        VGTermFunctions.specialize(SpecializeForSQLite(q))
-      case "sqlite" => SpecializeForSQLite(q)
+        VGTermFunctions.specialize(SpecializeForSQLite(q, db))
+      case "sqlite" => SpecializeForSQLite(q, db)
       case "oracle" => q
     }
   }
@@ -337,12 +349,28 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
     args.zipWithIndex.foreach(a => {
       val i = a._2+1
       a._1 match {
-        case p:StringPrimitive   => stmt.setString(i, p.v)
-        case p:IntPrimitive      => stmt.setLong(i, p.v)
-        case p:FloatPrimitive    => stmt.setDouble(i, p.v)
-        case _:NullPrimitive     => stmt.setNull(i, Types.VARCHAR)
-        case d:DatePrimitive     => stmt.setDate(i, JDBCUtils.convertDate(d))
-        case r:RowIdPrimitive    => stmt.setString(i,r.v)
+        case p:StringPrimitive    => stmt.setString(i, p.v)
+        case p:IntPrimitive       => stmt.setLong(i, p.v)
+        case p:FloatPrimitive     => stmt.setDouble(i, p.v)
+        case _:NullPrimitive      => stmt.setNull(i, Types.VARCHAR)
+        case d:DatePrimitive      => 
+          backend match {
+            case "sqlite" => 
+              stmt.setString(i, d.asString )
+            case _ =>
+              stmt.setDate(i, JDBCUtils.convertDate(d))
+          }
+        case t:TimestampPrimitive      => 
+          backend match {
+            case "sqlite" => 
+              stmt.setString(i, t.asString )
+            case _ =>
+              stmt.setTimestamp(i, JDBCUtils.convertTimestamp(t))
+          }
+        case r:RowIdPrimitive     => stmt.setString(i,r.v)
+        case t:TypePrimitive      => stmt.setString(i, t.t.toString) 
+        case BoolPrimitive(true)  => stmt.setInt(i, 1)
+        case BoolPrimitive(false) => stmt.setInt(i, 0)
       }
     })
   }
@@ -383,4 +411,14 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int) e
     }
   }
 
+  def selectInto(table: String, query: String){
+    backend match {
+      case "sqlite" => 
+        update(s"CREATE TABLE $table AS $query")
+    }
+  }
+  
+  def dateType: mimir.algebra.Type = TDate()
+  def invalidateCache(): Unit = {}
+  def rowIdType: mimir.algebra.Type = TRowId()
 }

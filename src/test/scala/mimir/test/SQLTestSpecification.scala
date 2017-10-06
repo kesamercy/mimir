@@ -11,6 +11,7 @@ import mimir.sql._
 import mimir.algebra._
 import mimir.util._
 import mimir.exec._
+import mimir.exec.result._
 import mimir.optimizer._
 
 object DBTestInstances
@@ -28,8 +29,14 @@ object DBTestInstances
           val shouldResetDB = config.getOrElse("reset", "YES") match { 
             case "NO" => false; case "YES" => true
           }
-          val shouldEnableInlining = config.getOrElse("inline", "YES") match { 
+          val shouldCleanupDB = config.getOrElse("cleanup", config.getOrElse("reset", "YES")) match {
             case "NO" => false; case "YES" => true
+          }
+          val shouldEnableInlining = config.getOrElse("inline", "YES") match {
+            case "NO" => false; case "YES" => true
+          }
+          if(shouldResetDB){
+            if(dbFile.exists()){ dbFile.delete(); }
           }
           val oldDBExists = dbFile.exists();
           val backend:Backend = jdbcBackendMode match {
@@ -38,15 +45,15 @@ object DBTestInstances
             case _ => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
           }
           val tmpDB = new Database(backend);
-          if(shouldResetDB){
-            if(dbFile.exists()){ dbFile.delete(); }
-          }
-          config.get("initial_db") match {
-            case None => ()
-            case Some(path) => Runtime.getRuntime().exec(s"cp $path $dbFile")
-          }
-          if(shouldResetDB){    
+          if(shouldCleanupDB){
             dbFile.deleteOnExit();
+          }
+          tmpDB.backend.open();
+          if(shouldResetDB || !oldDBExists){
+            config.get("initial_db") match {
+              case None => ()
+              case Some(path) => Runtime.getRuntime().exec(s"cp $path $dbFile")
+            }
           }
           tmpDB.backend.open();
           if(jdbcBackendMode == "spark")
@@ -73,9 +80,8 @@ object DBTestInstances
 abstract class SQLTestSpecification(val tempDBName:String, config: Map[String,String] = Map())
   extends Specification
   with SQLParsers
+  with RAParsers
 {
-
-  var history:List[Operator] = Nil
 
   def dbFile = new File(tempDBName+".db")
 
@@ -87,21 +93,18 @@ abstract class SQLTestSpecification(val tempDBName:String, config: Map[String,St
         db.sql.convert(sel)
     }
   }
-  def query(s: String): ResultIterator = {
-    val query = select(s)
-    history = query :: history
-    db.query(query)
-  }
-  def queryOneColumn(s: String): Iterable[PrimitiveValue] = 
-    query(s).mapRows(_(0))
+  def query[T](s: String)(handler: ResultIterator => T): T =
+    db.query(s)(handler)
+  def queryOneColumn[T](s: String)(handler: Iterator[PrimitiveValue] => T): T =
+    query(s){ result => handler(result.map(_(0))) }
   def querySingleton(s: String): PrimitiveValue =
-    queryOneColumn(s).head
-  def queryOneRow(s: String): Iterable[PrimitiveValue] =
-    query(s).mapRows( _.currentRow ).head
+    queryOneColumn(s){ _.next }
+  def queryOneRow(s: String): Row =
+    query(s){ _.next }
   def table(t: String) =
-    db.getTableOperator(t)
+    db.table(t)
   def resolveViews(q: Operator) =
-    ResolveViews(db,q)
+    db.views.resolve(q)
   def explainRow(s: String, t: String) = 
   {
     val query = resolveViews(db.sql.convert(
@@ -129,10 +132,7 @@ abstract class SQLTestSpecification(val tempDBName:String, config: Map[String,St
     db.update(stmt(s))
   def loadCSV(table: String, file: File) =
     LoadCSV.handleLoadTable(db, table, file)
-  def parser = new OperatorParser(db.models.get, db.getTableSchema(_).get)
-  def expr = parser.expr _
-  def oper = parser.operator _
-  def i = IntPrimitive(_:Long).asInstanceOf[PrimitiveValue]
-  def f = FloatPrimitive(_:Double).asInstanceOf[PrimitiveValue]
-  def str = StringPrimitive(_:String).asInstanceOf[PrimitiveValue]
-}
+
+  def modelLookup(model: String) = db.models.get(model)
+  def schemaLookup(table: String) = db.tableSchema(table).get
+ }

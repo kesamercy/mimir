@@ -9,17 +9,23 @@ import mimir._
 import mimir.parser._
 import mimir.algebra._
 import mimir.sql._
+import mimir.test.RASimplify
+import mimir.optimizer.expression._
+import mimir.optimizer.operator._
 
-object ExpressionOptimizerSpec extends Specification {
+object ExpressionOptimizerSpec 
+  extends Specification 
+  with RASimplify
+{
   
-  def parser = new ExpressionParser(null)
-  def expr = parser.expr _
+  def typechecker = new Typechecker  
+  def expr = ExpressionParser.expr _
 
   def conditionals(x:String) = 
-    PropagateConditions(expr(x))
+    simplify(PropagateConditions(expr(x)))
 
   def booleanOpts(x:String) =
-    FlattenBooleanConditionals(PullUpBranches(expr(x)))
+    new FlattenBooleanConditionals(typechecker)(PullUpBranches(expr(x)))
 
   "Propagate Conditions" should {
 
@@ -50,7 +56,7 @@ object ExpressionOptimizerSpec extends Specification {
 
     "Flatten Boolean Expressions" >> {
       booleanOpts("(IF A = 1 THEN B ELSE C END) = 2") must be equalTo expr("""
-        ((A = 1) AND (B = 2)) OR ((NOT (A = 1)) AND (C = 2))
+        ((A = 1) AND (B = 2)) OR ((A != 1) AND (C = 2))
       """)
     }
   }
