@@ -40,6 +40,7 @@ abstract class Backend {
     resultRows(sel).head.head
   
   def getTableSchema(table: String): Option[Seq[(String, Type)]]
+  def getView(name: String,table: String): Option[Seq[Seq[PrimitiveValue]]]
   
   def update(stmt: String): Unit
   def update(stmt: TraversableOnce[String]): Unit
@@ -49,6 +50,7 @@ abstract class Backend {
 
   def getAllTables(): Seq[String]
   def invalidateCache();
+  def enableInlining(db: Database): Unit
 
   def close()
 
@@ -56,6 +58,8 @@ abstract class Backend {
   def rowIdType: Type
   def dateType: Type
   def specializeQuery(q: Operator, db: Database): Operator
+
+  def setDB(db:Database): Unit
 
   def listTablesQuery: Operator
   def listAttrsQuery: Operator

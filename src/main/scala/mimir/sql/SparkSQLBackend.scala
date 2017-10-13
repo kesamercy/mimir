@@ -24,7 +24,6 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   //    - On lens query, the meta-data tables will be pushed into spark and then the query will be performed and a result returned
   //    -
 
-
   var spark: org.apache.spark.sql.SparkSession = null
   var inliningAvailable = false
   var db: mimir.Database = null
@@ -164,6 +163,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     })
   }
 
+  def fastUpdateBatch(stmt: String, argArray: TraversableOnce[Seq[PrimitiveValue]]): Unit =
+  {
+    ???
+  }
+
   def refreshTableSchema(): Unit = {
     this.synchronized({
       if (spark == null) {
@@ -271,9 +275,18 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def specializeQuery(q: Operator): Operator = {
     if( inliningAvailable )
-        VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
+        //VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
+      q
      else
         q
+  }
+
+  def specializeQuery(q: Operator,d: Database): Operator = {
+    if( inliningAvailable )
+    //VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
+      q
+    else
+      q
   }
 
   def setDB(newDB: Database): Unit = {
@@ -289,4 +302,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     ???
   }
 
+  override def selectInto(table: String, query: String): Unit = ???
+
+  override def invalidateCache(): Unit = ???
+
+  override def rowIdType: Type = ???
+
+  override def dateType: Type = ???
 }

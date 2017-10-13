@@ -6,13 +6,10 @@ import net.sf.jsqlparser.statement.{Statement}
 import org.specs2.mutable._
 
 import mimir._
-import mimir.parser._
 import mimir.sql._
 import mimir.algebra._
 import mimir.util._
-import mimir.exec._
 import mimir.exec.result._
-import mimir.optimizer._
 
 object DBTestInstances
 {
@@ -39,13 +36,18 @@ object DBTestInstances
             if(dbFile.exists()){ dbFile.delete(); }
           }
           val oldDBExists = dbFile.exists();
-          // println("Exists: "+oldDBExists)
-          val backend = new JDBCBackend(jdbcBackendMode, tempDBName+".db")
+          val backend:Backend = jdbcBackendMode match {
+            case "spark" => new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", tempDBName+".db")))
+            case "jdbc" => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
+            case _ => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
+          }
           val tmpDB = new Database(backend);
           if(shouldCleanupDB){    
             dbFile.deleteOnExit();
           }
-          tmpDB.backend.open();
+          backend.open();
+          if(jdbcBackendMode == "spark")
+            backend.setDB(tmpDB)
           if(shouldResetDB || !oldDBExists){
             config.get("initial_db") match {
               case None => ()

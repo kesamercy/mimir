@@ -7,7 +7,73 @@ import mimir.algebra._
 import mimir.lenses._
 import java.text.SimpleDateFormat
 
+import mimir.parser.MimirJSqlParser
+import mimir.sql.SparkSQLBackend
+
+import net.sf.jsqlparser.statement.Statement
+import net.sf.jsqlparser.statement.select.{FromItem, FromItemVisitor, Select}
+import net.sf.jsqlparser.schema.Table
+
+import scala.collection.mutable.ListBuffer
+
 object JDBCUtils {
+
+  def getTablesFromOperator(oper: Operator): Seq[(String,String)] = {
+    // (TableName,Alias) from an operator get the tables and their aliases used in that query
+    var children: Seq[Operator] = null
+    children = oper.children
+    var tables: ListBuffer[mimir.algebra.Table] = ListBuffer[mimir.algebra.Table]()
+    if(children.nonEmpty){
+      children.foreach((o) => {
+        o match {
+          case table: mimir.algebra.Table => tables += table
+          case op: Operator => tables = tables ++ getTables(op)
+          case _ => throw new Exception("SOMETHING BROKE IN JDBCUtils.getTablesFromOperator")
+        }
+      })
+    }
+    val r: Seq[(String,String)] = tables.map((tab) => {
+      val name = tab.name
+      val alias = tab.alias
+      if(alias == null)
+        (name,name)
+      else
+        alias.toUpperCase() match {
+          case "" => (name,name)
+          case "NULL" => (name,name)
+          case _ => (name,alias)
+        }
+    })
+    r
+  }
+
+  def getTables(operator: Operator): ListBuffer[mimir.algebra.Table] = {
+    var ret: ListBuffer[mimir.algebra.Table] = ListBuffer[mimir.algebra.Table]()
+    operator match {
+      case fi: mimir.algebra.Table => ret += fi
+      case o: Operator =>
+        var res: ListBuffer[mimir.algebra.Table] = ListBuffer[mimir.algebra.Table]()
+        o.children.foreach((c) => {res = res ++ getTables(c)})
+        if(!res.isEmpty)
+          ret = ret ++ res
+      case _ => throw new Exception("SOMETHING BROKE IN JDBCUtils.getTablesFromOperator")
+    }
+    ret
+  }
+
+  def getTablesFromOperator(sql: String,sparkSQLBackend: SparkSQLBackend): Seq[(String,String)] = {
+    val parser = new MimirJSqlParser(new java.io.StringReader(sql))
+    val stmt: Statement = parser.Statement()
+    stmt match {
+      case sel:  Select     =>
+        val o = sparkSQLBackend.db.sql.convert(sel)
+        return getTablesFromOperator(o)
+      //      case expl: Explain    => handleExplain(expl)
+      //      case pragma: Pragma   => handlePragma(pragma)
+      //      case analyze: Analyze => handleAnalyze(analyze)
+      case _                => throw new SQLException("This can not currently be processed by JDBCUtils.getTablesFromOperator")
+    }
+  }
 
   def convertSqlType(t: Int): Type = {
     t match {
