@@ -47,7 +47,7 @@ object SparkSQLCompat {
         case NullType => TAny()
         case ShortType => TInt()
         case StringType => TString()
-        case TimestampType => TTimeStamp()
+        case TimestampType => TTimestamp()
       }
       
       // println(s"$name -> $rawType -> $baseType -> $inferredType"); 
@@ -113,7 +113,7 @@ object MimirCast {
               case strVal : String => java.lang.Double.parseDouble(strVal)
               case null    => null
             }
-          case TString() | TRowId() | TDate() | TTimeStamp() =>
+          case TString() | TRowId() | TDate() | TTimestamp() =>
             va.toString()
 
           case TUser(name) =>
@@ -122,7 +122,7 @@ object MimirCast {
               Type.rootType(t) match {
                 case TRowId() =>
                   v
-                case TString() | TDate() | TTimeStamp() =>
+                case TString() | TDate() | TTimestamp() =>
                   val txt = v
                   if(TypeRegistry.matches(name, txt)){
                     v
