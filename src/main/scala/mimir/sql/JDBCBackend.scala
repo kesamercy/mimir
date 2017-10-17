@@ -382,5 +382,12 @@ class JDBCBackend(val backend: String, val filename: String)
           throw new SQLException("Error", e)
       }
   }
-  
+
+  override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = {
+    Some(this.resultRows(s"SELECT query FROM $table WHERE name = ?",
+      List(StringPrimitive(name.toUpperCase))
+    ))
+  }
+
+  override def setDB(db: Database): Unit = ???
 }

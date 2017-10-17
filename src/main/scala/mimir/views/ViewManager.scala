@@ -97,21 +97,23 @@ class ViewManager(db:Database) extends LazyLogging {
    */
   def get(name: String): Option[ViewMetadata] =
   {
-    val results = 
-      db.backend.resultRows(s"SELECT QUERY, METADATA FROM $viewTable WHERE name = ?", 
-        Seq(StringPrimitive(name))
-      )
-    results.take(1).headOption.map(_.toSeq).map( 
-      { 
-        case Seq(StringPrimitive(s), IntPrimitive(meta)) => {
-          val query = Json.toOperator(Json.parse(s))
-          val isMaterialized = 
-            meta != 0
-          
-          new ViewMetadata(name, query, isMaterialized, db)
+    var results: Option[Seq[Seq[PrimitiveValue]]] = db.backend.getView(name,viewTable)
+
+    results match {
+      case Some(res) => res.take(1).headOption.map(_.toSeq).map(
+        {
+          case Seq(StringPrimitive(s), IntPrimitive(meta)) => {
+            val query = Json.toOperator(Json.parse(s))
+            val isMaterialized =
+              meta != 0
+
+            new ViewMetadata(name, query, isMaterialized, db)
+          }
         }
-      }
-    )
+      )
+      case None => None
+    }
+
   }
 
   /**

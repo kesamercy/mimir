@@ -417,4 +417,14 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int)
   def dateType: mimir.algebra.Type = TDate()
   def invalidateCache(): Unit = {}
   def rowIdType: mimir.algebra.Type = TRowId()
+
+  override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = ??? // should be a query to get the view
+  /*
+  Something like this???
+      Some(this.resultRows(s"SELECT query FROM $table WHERE name = ?",
+      List(StringPrimitive(name.toUpperCase))
+    ))
+   */
+
+  override def setDB(db: Database): Unit = ???
 }

@@ -52,7 +52,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def enableInlining(db: Database): Unit =
   {
-      sparksql.VGTermFunctions.register(db, spark)
+      //sparksql.VGTermFunctions.register(db, spark)
       inliningAvailable = true
   }
 

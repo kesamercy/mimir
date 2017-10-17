@@ -25,4 +25,15 @@ object TimeUtils {
     }
   }
 
+  def monitor[A](desc: String, op: () => A, logger: String => Unit) : A = {
+    val oldLogger = currLogger
+    currLogger = logger
+    val start = DateTime.now
+    val ret = op()
+    val end = DateTime.now
+    currLogger = oldLogger
+    logger(s"$desc took: ${(start to end).millis} ms")
+    ret
+  }
+
 }
