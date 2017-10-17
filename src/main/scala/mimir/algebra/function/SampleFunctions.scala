@@ -77,6 +77,11 @@ object SampleFunctions
       },
       ((args: Seq[Type]) => TFloat())
 		)
+
+    fr.register("SIMPLETEST",
+      {(_) => IntPrimitive(9001)},
+      ((args: Seq[Type]) => TInt())
+    )
   }
 
 }

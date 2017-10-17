@@ -41,7 +41,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   def getObject[T](colName: String,getAs: Class[T]): T = getObject[T](findColumn(colName),getAs)
   def getObject[T](columnIndex: Int,getAs: Class[T]): T = {
     if(row >= 0 && row < sparkDataFrame.count()){
-      val ret = rows(row.toInt).get(columnIndex)
+      val ret = rows(row.toInt).get(columnIndex-1)
       if(ret == null)
         wasLastGetNull = true
       ret.asInstanceOf[T]

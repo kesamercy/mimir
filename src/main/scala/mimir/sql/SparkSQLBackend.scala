@@ -306,7 +306,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   override def invalidateCache(): Unit = ???
 
-  override def rowIdType: Type = ???
+  override def rowIdType: Type = TRowId()
 
-  override def dateType: Type = ???
+  override def dateType: Type = TDate()
 }
