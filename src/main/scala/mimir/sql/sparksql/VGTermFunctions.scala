@@ -4,29 +4,39 @@ import java.sql.SQLException
 import com.typesafe.scalalogging.slf4j.LazyLogging
 
 import mimir.algebra._
+import mimir.algebra.function.FunctionRegistry
 import mimir.ctables._
 import mimir.Database
-import mimir.sql.inlining.InliningFunctions
 import mimir.util._
 
 class BestGuessVGTerm(db: Database) {
   
   def bestGuessVGTerm(modelName : String, idx: Int, args:Seq[Any]) : Any = {
     val value_mimir : ( Int,Type) => PrimitiveValue = (idx, t) => {
-    t match {
-      case TInt()    => IntPrimitive(args(idx).asInstanceOf[Long])
-      case TFloat()  => FloatPrimitive(args(idx).asInstanceOf[Double])
-      case TAny()    => args(idx) match {
-              case intVal : Int => IntPrimitive(intVal.toLong)
-              case longVal : Long => IntPrimitive(longVal)
-              case doubleVal : Double   => FloatPrimitive(doubleVal)
-              case strVal : String => StringPrimitive(strVal)
-              case null    => null
-            }
-       case _       => TextUtils.parsePrimitive(t, args(idx).toString)
+      t match {
+        case TInt()    => IntPrimitive(args(idx).asInstanceOf[Long])
+        case TFloat()  => FloatPrimitive(args(idx).asInstanceOf[Double])
+        case TAny()    => args(idx) match {
+                case intVal : Int => IntPrimitive(intVal.toLong)
+                case longVal : Long => IntPrimitive(longVal)
+                case doubleVal : Double   => FloatPrimitive(doubleVal)
+                case strVal : String => StringPrimitive(strVal)
+                case null    => null
+              }
+         case _       => TextUtils.parsePrimitive(t, args(idx).toString)
+      }
     }
-  }
-    InliningFunctions.bestGuessVGTerm(db, value_mimir)(modelName, idx) match {
+
+    val model = db.models.get(modelName)
+    val argList = model.argTypes(idx).
+      zipWithIndex.
+      map(arg => value_mimir(arg._2+2, arg._1))
+    val hintList = model.hintTypes(idx).
+      zipWithIndex.
+      map(arg => value_mimir(arg._2+argList.length+2, arg._1))
+    val guess = model.bestGuess(idx, argList, hintList)
+
+    guess match {
       case IntPrimitive(i)      => i
       case FloatPrimitive(f)    => f
       case StringPrimitive(s)   => s
@@ -43,15 +53,13 @@ class BestGuessVGTerm(db: Database) {
 object VGTermFunctions 
 {
 
-  
-  
   def bestGuessVGTermFn = "BEST_GUESS_VGTERM"
 
   def register(db: Database, spark:org.apache.spark.sql.SparkSession): Unit =
   {
     spark.udf.register(bestGuessVGTermFn, new BestGuessVGTerm(db).bestGuessVGTerm _)
-    FunctionRegistry.registerNative(
-      bestGuessVGTermFn, 
+    db.functions.register(
+      bestGuessVGTermFn,
       (args) => { throw new SQLException("Mimir Cannot Execute VGTerm Functions Internally") },
       (_) => TAny()
     )
@@ -62,7 +70,7 @@ object VGTermFunctions
       case VGTerm(model, idx, args, hints) => 
         Function(
           bestGuessVGTermFn, 
-          List(StringPrimitive(model.name), IntPrimitive(idx))++
+          List(StringPrimitive(model), IntPrimitive(idx))++
             args.map(specialize(_))++
             hints.map(specialize(_))
         )
