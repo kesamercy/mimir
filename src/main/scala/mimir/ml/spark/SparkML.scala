@@ -2,11 +2,10 @@ package mimir.ml.spark
 
 import mimir.algebra._
 import mimir.Database
-
-import org.apache.spark.sql.{SQLContext, DataFrame, Row}
-import org.apache.spark.{SparkContext, SparkConf}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext, SparkSession}
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.ml.PipelineModel
-import org.apache.spark.sql.types.{DataType, DoubleType, LongType, FloatType, BooleanType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DoubleType, FloatType, IntegerType, LongType, StringType, StructField, StructType}
 import org.apache.spark.ml.feature.Imputer
 
 object SparkML {
@@ -22,7 +21,7 @@ abstract class SparkML {
       val conf = new SparkConf().set("spark.driver.allowMultipleContexts", "true").setMaster("local[*]").setAppName("MultiClassClassification")
       SparkML.sc match {
         case None => {
-          val sparkCtx = new SparkContext(conf)
+          val sparkCtx = SparkSession.builder().config(conf).getOrCreate().sparkContext
           SparkML.sc = Some(sparkCtx)
           sparkCtx
         }

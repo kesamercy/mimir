@@ -126,6 +126,7 @@ object Mimir extends LazyLogging {
         case e: SQLException =>
           output.print("Error: "+e.getMessage)
           logger.debug(e.getMessage + "\n" + e.getStackTrace.map(_.toString).mkString("\n"))
+          output.print(e.getMessage + "\n" + e.getStackTrace.map(_.toString).mkString("\n"))
 
         case e: RAException =>
           output.print("Error: "+e.getMessage)

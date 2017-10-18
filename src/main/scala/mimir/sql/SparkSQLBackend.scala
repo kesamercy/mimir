@@ -17,7 +17,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.joda.time.DateTime
 import com.github.nscala_time.time.Imports._
 
-class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
+class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/debug.db"))
   extends Backend
 {
   //  - sparkConnection is the connection to a database, might be extended in the future to an array to support multiple databases or files.
@@ -197,12 +197,13 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
         throw new SQLException("Trying to use unopened connection!")
       }
 
-      loadTableIfNotExists(table.toUpperCase())
-
-      tableSchemas.get(table.toUpperCase) match {
-        case Some(x: Seq[StructField]) => Some(convertToSchema(x))
-        case None => None
-        }
+      sparkConnection.asInstanceOf[sqliteSparkConnection].sqliteBackend.getTableSchema(table)
+//      loadTableIfNotExists(table.toUpperCase())
+//
+//      tableSchemas.get(table.toUpperCase) match {
+//        case Some(x: Seq[StructField]) => Some(convertToSchema(x))
+//        case None => None
+//        }
     })
   }
 
