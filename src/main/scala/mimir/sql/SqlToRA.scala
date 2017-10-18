@@ -60,7 +60,7 @@ class SqlToRA(db: Database)
   /**
    * Convert a SelectBody into an Operator + A projection map.
    */
-  def convert(sb : SelectBody, tableAlias: String) : (Operator, Seq[(String, String)]) = 
+  def convert(sb : SelectBody, tableAlias: String) : (Operator, Seq[(String, String)]) =
   {
     sb match {
       case ps: net.sf.jsqlparser.statement.select.PlainSelect => convert(ps, tableAlias)
@@ -144,34 +144,38 @@ class SqlToRA(db: Database)
     // below, once we figure out whether we're dealing with an aggregate or 
     // flat query.
     //
-    val applySortAndLimit = 
-    () => {
-      if(ps.getOrderByElements != null){ 
-        val sortDirectives = 
-          ps.getOrderByElements.map(ob => {
-            val column = 
-              ob.getExpression match {
-                case col:Column => convertColumn(col, bindings.toMap)
-                case _ => unhandled("ORDER BY on complex expression") 
-              }
-            SortColumn(column, ob.isAsc)
-          })
-        ret = Sort(sortDirectives, ret)
-      }
-      if(ps.getLimit != null){ 
-        val limit = ps.getLimit
-        if(limit.isLimitAll || (limit.getRowCount <= 0)){
-          if(limit.getOffset > 0){
-            ret = Limit(limit.getOffset, None, ret)
+    val applySortAndLimit =
+    if (false) {
+      () => {
+        if (ps.getOrderByElements != null) {
+          val sortDirectives =
+            ps.getOrderByElements.map(ob => {
+              val column =
+                ob.getExpression match {
+                  case col: Column => convertColumn(col, bindings.toMap)
+                  case _ => unhandled("ORDER BY on complex expression")
+                }
+              SortColumn(column, ob.isAsc)
+            })
+          ret = Sort(sortDirectives, ret)
+        }
+        if (ps.getLimit != null) {
+          val limit = ps.getLimit
+          if (limit.isLimitAll || (limit.getRowCount <= 0)) {
+            if (limit.getOffset > 0) {
+              ret = Limit(limit.getOffset, None, ret)
+            }
+          } else {
+            ret = Limit(
+              math.max(0, limit.getOffset),
+              Some(limit.getRowCount),
+              ret
+            )
           }
-        } else {
-          ret = Limit(
-                  math.max(0,limit.getOffset), 
-                  Some(limit.getRowCount), 
-                  ret
-                )
         }
       }
+    } else {
+      () => Unit
     }
 
     //////////////////////// CONVERT SELECT TARGETS /////////////////////////////

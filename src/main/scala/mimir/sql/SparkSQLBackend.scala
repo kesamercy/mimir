@@ -5,17 +5,19 @@ import java.sql._
 import mimir.Database
 import mimir.Methods
 import mimir.algebra._
-import mimir.util.JDBCUtils
+import mimir.util.{JDBCUtils, TimeUtils}
 import mimir.sql.sparksql._
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import mimir.sql.sparksql.SparkResultSet
-import org.apache.spark.sql.types.{DataType, LongType, StructField, IntegerType}
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.joda.time.DateTime
+import com.github.nscala_time.time.Imports._
 
-class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
+class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
   extends Backend
 {
   //  - sparkConnection is the connection to a database, might be extended in the future to an array to support multiple databases or files.
@@ -32,7 +34,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def open() = {
     this.synchronized({
-      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[*]")
+      val conf = new SparkConf().set("spark.driver.allowMultipleContexts", "true").setAppName("MimirSparkSQLBackend").setMaster("local[*]")
       spark = SparkSession
         .builder()
         .config(conf)
@@ -85,9 +87,13 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     })
 
     try {
+      val start = DateTime.now
       val df = spark.sql(sel)
-//      df.show()
-      new SparkResultSet(df)
+      df.show()
+      val end = DateTime.now
+      println(s"SPARK SQL took: ${(start to end).millis} ms")
+      val ret = new SparkResultSet(df)
+      ret
     } catch {
       case e: SQLException => println(e.toString+"during\n"+sel)
         throw new SQLException("Error in "+sel, e)

@@ -6,34 +6,21 @@ import java.sql.SQLException
 import java.sql.ResultSet
 
 import mimir.algebra._
-import mimir.ctables.{CTExplainer, CTPercolator, CellExplanation, RowExplanation, InlineVGTerms}
+import mimir.ctables._
 import mimir.models.Model
 import mimir.exec.Compiler
-import mimir.exec.mode.{CompileMode, BestGuess}
-import mimir.exec.result.{ResultIterator,SampleResultIterator,Row}
-import mimir.lenses.{LensManager}
-import mimir.sql.{SqlToRA,RAToSql,Backend}
-import mimir.sql.{
-    CreateLens,
-    CreateView,
-    Explain,
-    Feedback,
-    Load,
-    Pragma,
-    Analyze,
-    CreateAdaptiveSchema,
-    AlterViewMaterialize
-  }
+import mimir.exec.mode.{BestGuess, CompileMode}
+import mimir.exec.result.{ResultIterator, Row, SampleResultIterator}
+import mimir.lenses.LensManager
+import mimir.sql._
 import mimir.optimizer.operator.OptimizeExpressions
-import mimir.util.{LoadCSV,ExperimentalOptions}
+import mimir.util.{ExperimentalOptions, LoadCSV}
 import mimir.parser.MimirJSqlParser
 import mimir.statistics.FuncDep
-
 import net.sf.jsqlparser.statement.Statement
 import net.sf.jsqlparser.statement.select.Select
 import net.sf.jsqlparser.statement.create.table.CreateTable
 import net.sf.jsqlparser.statement.drop.Drop
-
 import com.typesafe.scalalogging.slf4j.LazyLogging
 
 import scala.collection.JavaConversions._
@@ -88,7 +75,7 @@ import scala.collection.mutable.ListBuffer
   * * mimir.explainer.CTExplainer (explainer)
   *    Responsible for creating explanation objects.
   */
-case class Database(backend: Backend)
+case class Database(backend: SparkSQLBackend)
   extends LazyLogging
 {
   //// Persistence
@@ -519,7 +506,7 @@ case class Database(backend: Backend)
   def requireTable(name: String, schema: Seq[(String, Type)], primaryKey: Option[String] = None)
   {
     val typeMap = schema.map { x => (x._1.toUpperCase -> x._2) }.toMap
-    backend.getTableSchema(name) match {
+    backend.metaDataStore.getTableSchema(name) match {
       case None => {
         val schemaElements = 
           schema.map { case (name, t) => s"$name $t" } ++ 
@@ -532,7 +519,7 @@ case class Database(backend: Backend)
           )
         """
         logger.debug(s"CREATE: $createCmd")
-        backend.update(createCmd);
+        backend.metaDataStore.update(createCmd);
       }
       case Some(oldSch) => {
         val currentColumns = oldSch.map { _._1 }.toSet
@@ -540,7 +527,7 @@ case class Database(backend: Backend)
           if(typeMap contains column){
             if(!(currentColumns contains column)){
               logger.debug("Need to add $column to $name(${typemap.keys.mkString(", ")})")
-              backend.update(s"ALTER TABLE $name ADD COLUMN $column ${typeMap(column)}")
+              backend.metaDataStore.update(s"ALTER TABLE $name ADD COLUMN $column ${typeMap(column)}")
             }
           }
         }

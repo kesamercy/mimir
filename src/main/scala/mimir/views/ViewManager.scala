@@ -46,7 +46,7 @@ class ViewManager(db:Database) extends LazyLogging {
     if(db.tableExists(name)){
       throw new SQLException(s"View '$name' already exists")
     }
-    db.backend.update(s"INSERT INTO $viewTable(NAME, QUERY, METADATA) VALUES (?,?,0)", 
+    db.backend.metaDataStore.update(s"INSERT INTO $viewTable(NAME, QUERY, METADATA) VALUES (?,?,0)",
       Seq(
         StringPrimitive(name), 
         StringPrimitive(Json.ofOperator(query).toString)
@@ -63,13 +63,13 @@ class ViewManager(db:Database) extends LazyLogging {
   def alter(name: String, query: Operator): Unit =
   {
     val properties = apply(name)
-    db.backend.update(s"UPDATE $viewTable SET QUERY=? WHERE NAME=?", 
+    db.backend.metaDataStore.update(s"UPDATE $viewTable SET QUERY=? WHERE NAME=?",
       Seq(
         StringPrimitive(Json.ofOperator(query).toString),
         StringPrimitive(name)
       )) 
     if(properties.isMaterialized){
-      db.backend.update("DROP TABLE ${name}")
+      db.backend.metaDataStore.update("DROP TABLE ${name}")
       materialize(name)
     }
   }
@@ -82,11 +82,11 @@ class ViewManager(db:Database) extends LazyLogging {
   def drop(name: String): Unit =
   {
     val properties = apply(name)
-    db.backend.update(s"DELETE FROM $viewTable WHERE NAME=?", 
+    db.backend.metaDataStore.update(s"DELETE FROM $viewTable WHERE NAME=?",
       Seq(StringPrimitive(name))
     )
     if(properties.isMaterialized){
-      db.backend.update("DROP TABLE ${name}")
+      db.backend.metaDataStore.update("DROP TABLE ${name}")
     }
   }
 
@@ -97,7 +97,7 @@ class ViewManager(db:Database) extends LazyLogging {
    */
   def get(name: String): Option[ViewMetadata] =
   {
-    var results: Option[Seq[Seq[PrimitiveValue]]] = db.backend.getView(name,viewTable)
+    var results: Option[Seq[Seq[PrimitiveValue]]] = db.backend.metaDataStore.getView(name,viewTable)
 
     results match {
       case Some(res) => res.take(1).headOption.map(_.toSeq).map(
@@ -138,7 +138,7 @@ class ViewManager(db:Database) extends LazyLogging {
    */
   def materialize(name: String): Unit =
   {
-    if(db.backend.getTableSchema(name) != None){
+    if(db.backend.metaDataStore.getTableSchema(name) != None){
       throw new SQLException(s"View '$name' is already materialized")
     }
     val properties = apply(name)
@@ -175,9 +175,9 @@ class ViewManager(db:Database) extends LazyLogging {
         
     logger.debug(s"QUERY: $inlinedSQL")
 
-    db.backend.selectInto(name, inlinedSQL.toString)
+    db.backend.metaDataStore.selectInto(name, inlinedSQL.toString)
 
-    db.backend.update(s"""
+    db.backend.metaDataStore.update(s"""
       UPDATE $viewTable SET METADATA = 1 WHERE NAME = ?
     """, Seq(
       StringPrimitive(name)
@@ -189,18 +189,18 @@ class ViewManager(db:Database) extends LazyLogging {
    * @param  name        The name of the view to dematerialize
    */
   def dematerialize(name: String): Unit = {
-    if(db.backend.getTableSchema(name) == None){
+    if(db.backend.metaDataStore.getTableSchema(name) == None){
       throw new SQLException(s"View '$name' is not materialized")
     }
-    db.backend.update(s"""
+    db.backend.metaDataStore.update(s"""
       DROP TABLE $name
     """)
-    db.backend.update(s"""
+    db.backend.metaDataStore.update(s"""
       UPDATE $viewTable SET METADATA = 0 WHERE NAME = ?
     """, Seq(
       StringPrimitive(name)
     ))
-    db.backend.invalidateCache
+    db.backend.metaDataStore.invalidateCache
   }
 
   /**
@@ -209,7 +209,7 @@ class ViewManager(db:Database) extends LazyLogging {
    */
   def list(): List[String] =
   {
-    db.backend.
+    db.backend.metaDataStore.
       resultRows(s"SELECT name FROM $viewTable").
       flatten.
       map( _.asString ).

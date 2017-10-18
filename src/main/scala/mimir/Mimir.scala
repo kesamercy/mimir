@@ -50,7 +50,9 @@ object Mimir extends LazyLogging {
     ExperimentalOptions.enable(conf.experimental())
 
     // Set up the database connection(s)
-    db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
+    val backend: SparkSQLBackend = new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", "databases/debug.db")))
+    db = new Database(backend)
+    backend.setDB(db)
     if(!conf.quiet()){
       output.print("Connecting to " + conf.backend() + "://" + conf.dbname() + "...")
     }
@@ -71,7 +73,7 @@ object Mimir extends LazyLogging {
       }))
 
       if(!ExperimentalOptions.isEnabled("NO-INLINE-VG")){
-        db.backend.asInstanceOf[JDBCBackend].enableInlining(db)
+        db.backend.enableInlining(db)
       }
 
       if(conf.file.get == None || conf.file() == "-"){

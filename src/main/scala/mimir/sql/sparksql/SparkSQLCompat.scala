@@ -13,6 +13,7 @@ object SparkSQLCompat {
 
   def registerFunctions(spark:org.apache.spark.sql.SparkSession):Unit = {
     spark.udf.register("SIMPLETEST", SpeedTest.SimpleTest _)
+    spark.udf.register("RANDOM", Random.random _)
 /*    spark.udf.register("MIMIRCAST", MimirCast.mimircast _)
     spark.udf.register("AGGTEST", new AggTest)
     spark.udf.register( "SQRT", Sqrt.sqrt _)
@@ -58,6 +59,13 @@ object SparkSQLCompat {
     if(!result.isEmpty){ Some(result.toList) } else { None }
   }
 }
+
+object Random {
+  def random(): Long = {
+    scala.util.Random.nextLong()
+  }
+}
+
 
 object Minus {
   def minus(arg1:Double, arg2:Double): Double = {
