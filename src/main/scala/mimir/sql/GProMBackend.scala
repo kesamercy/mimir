@@ -427,4 +427,6 @@ class GProMBackend(backend: String, filename: String, var gpromLogLevel : Int)
    */
 
   override def setDB(db: Database): Unit = ???
+
+  override def metaDataStore = this
 }

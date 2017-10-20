@@ -75,7 +75,7 @@ import scala.collection.mutable.ListBuffer
   * * mimir.explainer.CTExplainer (explainer)
   *    Responsible for creating explanation objects.
   */
-case class Database(backend: SparkSQLBackend)
+case class Database(backend: Backend)
   extends LazyLogging
 {
   //// Persistence

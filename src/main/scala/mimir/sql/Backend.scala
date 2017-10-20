@@ -64,6 +64,8 @@ abstract class Backend {
   def listTablesQuery: Operator
   def listAttrsQuery: Operator
 
+  def metaDataStore: Backend
+
 }
 
 trait InlinableBackend {

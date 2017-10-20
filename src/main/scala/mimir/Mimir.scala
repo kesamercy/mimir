@@ -51,6 +51,7 @@ object Mimir extends LazyLogging {
 
     // Set up the database connection(s)
     val backend: SparkSQLBackend = new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", "databases/debug.db")))
+//    val backend = new JDBCBackend("sqlite", "databases/debug.db")
     db = new Database(backend)
     backend.setDB(db)
     if(!conf.quiet()){

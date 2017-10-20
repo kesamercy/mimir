@@ -389,5 +389,7 @@ class JDBCBackend(val backend: String, val filename: String)
     ))
   }
 
-  override def setDB(db: Database): Unit = ???
+  override def setDB(db: Database): Unit = {}
+
+  override def metaDataStore = this
 }

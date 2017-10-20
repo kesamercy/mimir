@@ -36,7 +36,11 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
 
   def isWrapperFor(wrappedType: Class[_]): Boolean = wrappedType == sparkDataFrame.getClass 
   
-  def wasNull(): Boolean = wasLastGetNull
+  def wasNull(): Boolean = {
+    val ret = wasLastGetNull
+    wasLastGetNull = false
+    ret
+  }
 
   def getObject[T](colName: String,getAs: Class[T]): T = getObject[T](findColumn(colName),getAs)
   def getObject[T](columnIndex: Int,getAs: Class[T]): T = {
@@ -64,7 +68,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   
   def getString(columnIndex: Int): String = {
     val o: AnyRef = getObject(columnIndex)
-    if (o == null) "" else o.toString
+    if (o == null) null else o.toString
   }
 
   def getBoolean(columnIndex: Int): Boolean =
@@ -79,8 +83,14 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   def getInt(columnIndex: Int): Int =
     java.lang.Integer.parseInt(getString(columnIndex))
 
-  def getLong(columnIndex: Int): Long =
-    java.lang.Long.parseLong(getString(columnIndex))
+  def getLong(columnIndex: Int): Long = {
+    val s = getString(columnIndex)
+    if (s == null) {
+      0
+    } else {
+      java.lang.Long.parseLong(getString(columnIndex))
+    }
+  }
 
   def getFloat(columnIndex: Int): Float =
     java.lang.Float.parseFloat(getString(columnIndex))

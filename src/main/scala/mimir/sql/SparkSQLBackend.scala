@@ -17,7 +17,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.joda.time.DateTime
 import com.github.nscala_time.time.Imports._
 
-class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/debug.db"))
+class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/testing.db"))
   extends Backend
 {
   //  - sparkConnection is the connection to a database, might be extended in the future to an array to support multiple databases or files.
