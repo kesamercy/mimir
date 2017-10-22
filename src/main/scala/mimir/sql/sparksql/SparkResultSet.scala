@@ -249,7 +249,6 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   }
   
   def next(): Boolean= {
-    println(s"SparkRS: next: $row -> ${row+1}")
     row = row+1
     row < sparkDataFrame.count()
   }
