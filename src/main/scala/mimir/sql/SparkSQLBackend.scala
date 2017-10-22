@@ -7,6 +7,7 @@ import mimir.Methods
 import mimir.algebra._
 import mimir.util.{JDBCUtils, TimeUtils}
 import mimir.sql.sparksql._
+import mimir.sql.sqlite.SpecializeForSQLite
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -54,7 +55,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
 
   def enableInlining(db: Database): Unit =
   {
-      //sparksql.VGTermFunctions.register(db, spark)
+      sparksql.VGTermFunctions.register(db, spark)
+
       inliningAvailable = true
   }
 
@@ -73,12 +75,14 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
           throw new SQLException("Trying to use unopened connection!")
         }
 
+        loadTableIfNotExists("R")
+
         // will need to detect non-deterministic queries
 
-        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
-        tableList.foreach((x) => {
-          loadTableIfNotExists(x._1.toUpperCase())
-        })
+//        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
+//        tableList.foreach((x) => {
+//          loadTableIfNotExists(x._1.toUpperCase())
+//        })
 
       } catch {
         case e: SQLException => println(e.toString+"during\n"+sel)
@@ -282,16 +286,15 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
 
   def specializeQuery(q: Operator): Operator = {
     if( inliningAvailable )
-        //VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
-      q
+        VGTermFunctions.specialize(SpecializeForSQLite(q, db))
      else
         q
   }
 
   def specializeQuery(q: Operator,d: Database): Operator = {
-    if( inliningAvailable )
-    //VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
-      q
+    if( inliningAvailable ) {
+      VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, d))
+    }
     else
       q
   }
