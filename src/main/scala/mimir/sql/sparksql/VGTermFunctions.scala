@@ -5,13 +5,14 @@ import java.sql.SQLException
 import mimir.algebra._
 import mimir.Database
 import mimir.ctables.vgterm.BestGuess
-import mimir.util._
 
-class BestGuessVGTerm(db: Database) {
-  
-  def bestGuessVGTerm(modelName : String, idx: Int, args:Seq[Long]) : Long = {
-    10
-  }
+
+class BestGuessVGTerm(db: Database) extends Serializable {
+
+//  def bestGuessVGTerm(modelName : String, idx: Int, args:Seq[Long]) : Long = {
+    def bestGuessVGTerm(modelName : String, idk: java.lang.Long, idx: java.lang.Long, arg1: java.lang.Long, arg2: java.lang.Long, arg3: java.lang.Long) : Long = {
+      10
+    }
 //    val value_mimir : ( Int,Type) => PrimitiveValue = (idx, t) => {
 //      t match {
 //        case TInt()    => IntPrimitive(args(idx).asInstanceOf[Long])
@@ -57,25 +58,24 @@ object VGTermFunctions
 
   def register(db: Database, spark:org.apache.spark.sql.SparkSession): Unit =
   {
-    val bestGuess: Int => Int = (in: Int) => 10
-    spark.udf.register("GET_TEN", bestGuess)
-    db.functions.register(
-      "GET_TEN",
-      (args) => { throw new SQLException("Mimir Cannot Execute VGTerm Functions Internally") },
-      (_) => TAny()
-    )
-//    spark.udf.register(bestGuessVGTermFn, new BestGuessVGTerm(db).bestGuessVGTerm _)
+//    val bestGuess: Int => Int = (in: Int) => 10
+//    spark.udf.register("GET_TEN", bestGuess)
 //    db.functions.register(
-//      bestGuessVGTermFn,
-//      (args) => { throw new SQLException("Mimir Cannot Execute VGTerm Functions Internally") },
-//      (_) => TAny()
+//      "GET_TEN",
+//      (args) => { new IntPrimitive(10) },
+//      (_) => TInt()
 //    )
+    spark.udf.register(bestGuessVGTermFn, new BestGuessVGTerm(db).bestGuessVGTerm _)
+    db.functions.register(
+      bestGuessVGTermFn,
+      (args) => { throw new SQLException("Mimir Cannot Execute VGTerm Functions Internally") },
+      (_) => TInt()
+    )
   }
 
   def specialize(e: Expression): Expression = {
     e match {
       case BestGuess(model, idx, args, hints) =>
-        println(s"Specializing: $model;$idx[${args.mkString(",")}][${hints.mkString(",")}]")
         Function(
           bestGuessVGTermFn,
           Seq(StringPrimitive(model.name), IntPrimitive(idx))++

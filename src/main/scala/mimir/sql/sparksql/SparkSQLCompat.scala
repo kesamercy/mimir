@@ -178,7 +178,7 @@ object MimirCast {
 class GroupAnd extends UserDefinedAggregateFunction {
   // This is the input fields for your aggregate function.
   override def inputSchema: org.apache.spark.sql.types.StructType =
-    StructType(StructField("value", IntegerType) :: Nil)
+    StructType(StructField("value", BooleanType) :: Nil)
 
   // This is the internal fields you keep for computing your aggregate.
   override def bufferSchema: StructType = StructType(
@@ -214,7 +214,7 @@ class GroupAnd extends UserDefinedAggregateFunction {
 class GroupOr extends UserDefinedAggregateFunction {
   // This is the input fields for your aggregate function.
   override def inputSchema: org.apache.spark.sql.types.StructType =
-    StructType(StructField("value", IntegerType) :: Nil)
+    StructType(StructField("value", BooleanType) :: Nil)
 
   // This is the internal fields you keep for computing your aggregate.
   override def bufferSchema: StructType = StructType(
