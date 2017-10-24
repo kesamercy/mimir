@@ -23,6 +23,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   //  - metaDataStore is the place where Mimir's meta-data for lenses is stored
   //    - On lens query, the meta-data tables will be pushed into spark and then the query will be performed and a result returned
   //    -
+  //  - maintain list of tables that are used as views, this is important for loading tables to spark
+
+  // this is a black list of tables that spark will not perform queries over, this includes updates and queries, they will instead be directed to
+  // the metaDataStore
+//  val blackListTables: List[String] = List("MIMIR_VIEWS","MIMIR_MODELS","MIMIR_MODEL_OWNERS","MIMIR_LENSES","MIMIR_ADAPTIVE_SCHEMAS")
 
   var spark: org.apache.spark.sql.SparkSession = null
   var inliningAvailable = false
@@ -65,6 +70,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def execute(sel: String): ResultSet =
   {
+    var cantLoad:Boolean = false
     this.synchronized({
       try {
         if(spark == null) {
@@ -74,8 +80,10 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         // will need to detect non-deterministic queries
 
         val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
+
         tableList.foreach((x) => {
-          loadTableIfNotExists(x._1.toUpperCase())
+          if(!loadTableIfNotExists(x._1.toUpperCase()))
+            cantLoad = true // set to true because one or more table can't be loaded, this might be a backend query then
         })
 
       } catch {
@@ -85,9 +93,16 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     })
 
     try {
-      val df = spark.sql(sel)
-//      df.show()
-      new SparkResultSet(df)
+      cantLoad match {
+        case false => // all tables are part of spark so use spark
+          val df = spark.sql(sel)
+          //      df.show()
+          new SparkResultSet(df)
+
+        case true =>
+          // one or more tables is not part of spark, so try backend
+          metaDataStore.execute(sel)
+      }
     } catch {
       case e: SQLException => println(e.toString+"during\n"+sel)
         throw new SQLException("Error in "+sel, e)
@@ -109,13 +124,15 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     upd.replaceAll(",\\s*PRIMARY\\s+KEY\\s*[()a-zA-Z0-9]+", "").replaceAll("\\s+text\\s*(,|[\\s)]+)", " string$1")
   }
 
+  // For right now update can only be called on the metaDataBackend
   def update(upd: String): Unit =
   {
     this.synchronized({
       if(spark == null) {
         throw new SQLException("Trying to use unopened connection!")
       }
-      spark.sql(fixUpdateSqlForSpark(upd))
+      // update the metaDataBackend instead of spark, could check here to decided which one to update in the future
+      metaDataStore.update(upd)
     })
   }
 
@@ -126,7 +143,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         throw new SQLException("Trying to use unopened connection!")
       }
       upd.foreach( updSql => {
-        spark.sql(fixUpdateSqlForSpark(updSql))
+        update(updSql)
       })
     })
   }
@@ -142,7 +159,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           sqlStr = sqlStr.replaceFirst("?",getArg(arg))
           ""
         })
-       spark.sql(fixUpdateSqlForSpark(sqlStr))
+       update(sqlStr)
     })
   }
 
@@ -161,11 +178,6 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
        spark.sql(fixUpdateSqlForSpark(sqlStr))
       })
     })
-  }
-
-  def fastUpdateBatch(stmt: String, argArray: TraversableOnce[Seq[PrimitiveValue]]): Unit =
-  {
-    ???
   }
 
   def refreshTableSchema(): Unit = {
@@ -191,12 +203,19 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         throw new SQLException("Trying to use unopened connection!")
       }
 
-      loadTableIfNotExists(table.toUpperCase())
+      val tableLoaded: Boolean = loadTableIfNotExists(table.toUpperCase())
 
-      tableSchemas.get(table.toUpperCase) match {
-        case Some(x: Seq[StructField]) => Some(convertToSchema(x))
-        case None => None
+      if(tableLoaded) {
+        // The table was found in one of the spark connections
+        tableSchemas.get(table.toUpperCase) match {
+          case Some(x: Seq[StructField]) => Some(convertToSchema(x))
+          case None => None
         }
+      }
+      else {
+        // Spark is not aware of the table, so it's either a metaData table or the table does not exist
+        metaDataStore.getTableSchema(table.toUpperCase)
+      }
     })
   }
 
@@ -256,19 +275,26 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   }
 
   def loadTable(table: String): Boolean = {
-    sparkConnection.loadTable(spark,table.toUpperCase())
-    tableSchemas.contains(table.toUpperCase())
+    try {
+      sparkConnection.loadTable(spark, table.toUpperCase())
+      true
+    }
+    catch{
+      case _ => false
+    }
   }
 
   def loadTableIfNotExists(table: String): Boolean = {
     val tableInSpark = tableSchemas.contains(table.toUpperCase())
-    var b = false
+    var tableLoaded = false
     if(!tableInSpark){
       // table isn't in spark so try and load table
-      b = loadTable(table.toUpperCase())
+      tableLoaded = loadTable(table.toUpperCase())
+      refreshTableSchema()
     }
-    refreshTableSchema()
-    b
+    else
+      tableLoaded = true
+    tableLoaded
   }
 
   def canHandleVGTerms(): Boolean = inliningAvailable
@@ -298,6 +324,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     ???
   }
   def listAttrsQuery: Operator =
+  {
+    ???
+  }
+
+  def fastUpdateBatch(stmt: String, argArray: TraversableOnce[Seq[PrimitiveValue]]): Unit =
   {
     ???
   }
