@@ -83,7 +83,8 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     this.db = db
     sparkMLInstanceType = guessSparkModelType(guessInputType) 
     TimeUtils.monitor(s"Train $name.$colName", WekaModel.logger.info(_)){
-      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Sort(Seq(SortColumn(Function("random", Seq()), true)), Project(Seq(ProjectArg(colName, Var(colName))), query)))
+//      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Sort(Seq(SortColumn(Function("random", Seq()), true)), Project(Seq(ProjectArg(colName, Var(colName))), query)))
+val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg(colName, Var(colName))), query))
       learner = Some(sparkMLModelGenerator(ModelParams(trainingQuery, db, colName)))
     }
   }

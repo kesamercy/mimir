@@ -5,13 +5,13 @@ import java.sql._
 import mimir.Database
 import mimir.Methods
 import mimir.algebra._
+import mimir.ml.spark.SparkML
 import mimir.util.JDBCUtils
-import mimir.sql.sparksql._
+import mimir.sql.sparksql.{SparkResultSet, _}
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import mimir.sql.sparksql.SparkResultSet
-import org.apache.spark.sql.types.{DataType, LongType, StructField, IntegerType}
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
@@ -27,7 +27,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   // this is a black list of tables that spark will not perform queries over, this includes updates and queries, they will instead be directed to
   // the metaDataStore
-//  val blackListTables: List[String] = List("MIMIR_VIEWS","MIMIR_MODELS","MIMIR_MODEL_OWNERS","MIMIR_LENSES","MIMIR_ADAPTIVE_SCHEMAS")
+
+  val blackListTables: List[String] = List("MIMIR_VIEWS","MIMIR_MODELS","MIMIR_MODEL_OWNERS","MIMIR_LENSES","MIMIR_ADAPTIVE_SCHEMAS")
 
   var spark: org.apache.spark.sql.SparkSession = null
   var inliningAvailable = false
@@ -48,6 +49,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
       assert(spark != null)
       assert(metaDataStore != null)
+
+      SparkML.sc = Some(spark.sparkContext)
 
       // register udf's for spark
       SparkSQLCompat.registerFunctions(spark)
@@ -71,6 +74,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   def execute(sel: String): ResultSet =
   {
     var cantLoad:Boolean = false
+    var metaDataQuery:Boolean = false
+
     this.synchronized({
       try {
         if(spark == null) {
@@ -80,6 +85,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         // will need to detect non-deterministic queries
 
         val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
+        val tList:Seq[String] = tableList.map((t)=> t._1)
+
+        metaDataQuery = !tList.intersect(blackListTables).isEmpty
 
         tableList.foreach((x) => {
           if(!loadTableIfNotExists(x._1.toUpperCase()))
@@ -93,10 +101,22 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     })
 
     try {
-      cantLoad match {
+      (cantLoad || metaDataQuery) match {
         case false => // all tables are part of spark so use spark
-          val df = spark.sql(sel)
-          //      df.show()
+          val df = spark.sql(sel.replace("LIMIT 10000",""))
+//          spark.sql("SELECT SUBQ_A.C AS C, SUBQ_A.MIMIR_ROWID AS MIMIR_ROWID FROM (SELECT * FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A) SUBQ_A").show()
+//          val dfSane = spark.sql("SELECT SUBQ_A.C AS C, SUBQ_A.MIMIR_ROWID AS MIMIR_ROWID FROM (SELECT * FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A LIMIT 10000) SUBQ_A")
+          /*
+          try{
+            //val df = spark.sql("SELECT MTA_RAW.RECORDEDATTIME AS RECORDEDATTIME, MTA_RAW.DIRECTIONREF AS DIRECTIONREF, MTA_RAW.JOURNEYPATTERNREF AS JOURNEYPATTERNREF, MTA_RAW.PUBLISHEDLINENAME AS PUBLISHEDLINENAME, MTA_RAW.ORIGINREF AS ORIGINREF, MTA_RAW.DESTINATIONREF AS DESTINATIONREF, MTA_RAW.DESTINATIONNAME AS DESTINATIONNAME, MTA_RAW.BEARING AS BEARING, MTA_RAW.PROGRESSRATE AS PROGRESSRATE, MTA_RAW.BLOCKREF AS BLOCKREF, MTA_RAW.VEHICLEREF AS VEHICLEREF, MTA_RAW.ORIGINAIMEDDEPARTURETIME AS ORIGINAIMEDDEPARTURETIME, MTA_RAW.PROGRESSSTATUS AS PROGRESSSTATUS, MTA_RAW.DATEDVEHICLEJOURNEYREF AS DATEDVEHICLEJOURNEYREF, MTA_RAW.VEHICLELOCATION_LONGITUDE AS VEHICLELOCATION_LONGITUDE, MTA_RAW.VEHICLELOCATION_LATITUDE AS VEHICLELOCATION_LATITUDE, MTA_RAW.EXPECTEDARRIVALTIME AS EXPECTEDARRIVALTIME, MTA_RAW.ARRIVALPROXIMITYTEXT AS ARRIVALPROXIMITYTEXT, MTA_RAW.DISTANCEFROMSTOP AS DISTANCEFROMSTOP, MTA_RAW.NUMBEROFSTOPSAWAY AS NUMBEROFSTOPSAWAY, MTA_RAW.STOPPOINTREF AS STOPPOINTREF, MTA_RAW.VISITNUMBER AS VISITNUMBER, MTA_RAW.STOPPOINTNAME AS STOPPOINTNAME, MTA_RAW.SCHEDULEDARRIVALTIME AS SCHEDULEDARRIVALTIME, MTA_RAW.ROWID AS ROWID, MTA_RAW.ROWID AS MIMIR_ROWID FROM MTA_RAW AS MTA_RAW")
+            val df = spark.sql("SELECT SUBQ_RECORDEDATTIME.BEARING AS AVG FROM (SELECT MTA_RAW.RECORDEDATTIME AS RECORDEDATTIME, MTA_RAW.DIRECTIONREF AS DIRECTIONREF, MTA_RAW.JOURNEYPATTERNREF AS JOURNEYPATTERNREF, MTA_RAW.PUBLISHEDLINENAME AS PUBLISHEDLINENAME, MTA_RAW.ORIGINREF AS ORIGINREF, MTA_RAW.DESTINATIONREF AS DESTINATIONREF, MTA_RAW.DESTINATIONNAME AS DESTINATIONNAME, MTA_RAW.BEARING AS BEARING, MTA_RAW.PROGRESSRATE AS PROGRESSRATE, MTA_RAW.BLOCKREF AS BLOCKREF, MTA_RAW.VEHICLEREF AS VEHICLEREF, MTA_RAW.ORIGINAIMEDDEPARTURETIME AS ORIGINAIMEDDEPARTURETIME, MTA_RAW.PROGRESSSTATUS AS PROGRESSSTATUS, MTA_RAW.DATEDVEHICLEJOURNEYREF AS DATEDVEHICLEJOURNEYREF, MTA_RAW.VEHICLELOCATION_LONGITUDE AS VEHICLELOCATION_LONGITUDE, MTA_RAW.VEHICLELOCATION_LATITUDE AS VEHICLELOCATION_LATITUDE, MTA_RAW.EXPECTEDARRIVALTIME AS EXPECTEDARRIVALTIME, MTA_RAW.ARRIVALPROXIMITYTEXT AS ARRIVALPROXIMITYTEXT, MTA_RAW.DISTANCEFROMSTOP AS DISTANCEFROMSTOP, MTA_RAW.NUMBEROFSTOPSAWAY AS NUMBEROFSTOPSAWAY, MTA_RAW.STOPPOINTREF AS STOPPOINTREF, MTA_RAW.VISITNUMBER AS VISITNUMBER, MTA_RAW.STOPPOINTNAME AS STOPPOINTNAME, MTA_RAW.SCHEDULEDARRIVALTIME AS SCHEDULEDARRIVALTIME, MTA_RAW.ROWID AS ROWID, MTA_RAW.ROWID AS MIMIR_ROWID FROM MTA_RAW AS MTA_RAW) SUBQ_RECORDEDATTIME")
+            df.show()
+          }
+          catch{
+            case e:Exception =>
+          }
+          */
+//          df.show()
           new SparkResultSet(df)
 
         case true =>
@@ -142,9 +162,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       if(spark == null) {
         throw new SQLException("Trying to use unopened connection!")
       }
-      upd.foreach( updSql => {
-        update(updSql)
-      })
+      metaDataStore.update(upd)
     })
   }
 
@@ -154,12 +172,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       if(spark == null) {
         throw new SQLException("Trying to use unopened connection!")
       }
-      var sqlStr = upd
-        args.map(arg => {
-          sqlStr = sqlStr.replaceFirst("?",getArg(arg))
-          ""
-        })
-       update(sqlStr)
+      metaDataStore.update(upd,args)
     })
   }
 
@@ -202,6 +215,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       if(spark == null) {
         throw new SQLException("Trying to use unopened connection!")
       }
+
+      if(blackListTables.contains(table.toUpperCase()))
+        return metaDataStore.getTableSchema(table.toUpperCase)
 
       val tableLoaded: Boolean = loadTableIfNotExists(table.toUpperCase())
 

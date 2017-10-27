@@ -6,6 +6,8 @@ import java.io.Reader
 import java.math.BigDecimal
 import java.net.MalformedURLException
 import java.net.URL
+
+import org.apache.spark.sql.Row
 //import java.sql.Array
 import java.sql.Blob
 import java.sql.Clob
@@ -28,7 +30,8 @@ import scala.collection.JavaConversions._
 class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
 
   val cols = sparkDataFrame.columns.toSeq.zipWithIndex.toMap
-  val rows = sparkDataFrame.collect()
+  val rows:Array[Row] = sparkDataFrame.collect()
+  val lastRow = rows.length
   var row = -1L
   var wasLastGetNull = false
   
@@ -36,11 +39,15 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
 
   def isWrapperFor(wrappedType: Class[_]): Boolean = wrappedType == sparkDataFrame.getClass 
   
-  def wasNull(): Boolean = wasLastGetNull
+  def wasNull(): Boolean = {
+    val ret = wasLastGetNull
+    wasLastGetNull = false
+    ret
+  }
 
   def getObject[T](colName: String,getAs: Class[T]): T = getObject[T](findColumn(colName),getAs)
   def getObject[T](columnIndex: Int,getAs: Class[T]): T = {
-    if(row >= 0 && row < sparkDataFrame.count()){
+    if(row >= 0 && row < lastRow){
       val ret = rows(row.toInt).get(columnIndex-1)
       if(ret == null)
         wasLastGetNull = true
@@ -80,13 +87,29 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
     java.lang.Integer.parseInt(getString(columnIndex))
 
   def getLong(columnIndex: Int): Long =
-    java.lang.Long.parseLong(getString(columnIndex))
+    try{
+      java.lang.Long.parseLong(getString(columnIndex))
+    }
+    catch {
+      case e:NumberFormatException => (0.0).toLong
+    }
 
   def getFloat(columnIndex: Int): Float =
-    java.lang.Float.parseFloat(getString(columnIndex))
+    try{
+      java.lang.Float.parseFloat(getString(columnIndex))
+    }
+    catch {
+      case e:NumberFormatException => 0.0f
+    }
 
   def getDouble(columnIndex: Int): Double =
-    java.lang.Double.parseDouble(getString(columnIndex))
+    try {
+      java.lang.Double.parseDouble(getString(columnIndex))
+    }
+  catch {
+    case e:NumberFormatException => 0.0d
+  }
+
 
   def getBigDecimal(columnIndex: Int, scale: Int): BigDecimal =
     new BigDecimal(getString(columnIndex))
@@ -197,40 +220,40 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
     row < 0
 
   def isAfterLast(): Boolean =
-    row >= sparkDataFrame.count()
+    row >= lastRow
 
   def isFirst(): Boolean =
     row == 0
 
   def isLast(): Boolean =
-    row == sparkDataFrame.count()-1
+    row == lastRow -1
 
   def beforeFirst(): Unit = {
    row = -1
   }
 
   def afterLast(): Unit = {
-   row = sparkDataFrame.count()
+   row = lastRow
   }
 
   def first(): Boolean = {
-    row = 0  
-    sparkDataFrame.count() > 0 
+    row = 0
+    lastRow > 0
   }
   
   def last(): Boolean = {
-    row = sparkDataFrame.count() -1
-    sparkDataFrame.count() > 0 
+    row = lastRow -1
+    lastRow > 0
   }
   
   def absolute(row: Int): Boolean = {
     this.row = row
-    row < sparkDataFrame.count() && row >= 0
+    row < lastRow && row >= 0
   }
   
   def relative(rows: Int): Boolean = {
     row = row+rows
-    row < sparkDataFrame.count() && row >= 0
+    row < lastRow && row >= 0
   }
 
   def previous(): Boolean ={
@@ -239,9 +262,9 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   }
   
   def next(): Boolean= {
-    println(s"SparkRS: next: $row -> ${row+1}")
+//    println(s"SparkRS: next: $row -> ${row+1}")
     row = row+1
-    row < sparkDataFrame.count()
+    row < lastRow
   }
   
   def close(): Unit = {
@@ -768,5 +791,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   def updateNClob(columnLabel: String, reader: Reader): Unit = {}
 // TODO Auto-generated method stub
 
+//  override def toList: List[Row] =
+//    rows.toList
 }
 
