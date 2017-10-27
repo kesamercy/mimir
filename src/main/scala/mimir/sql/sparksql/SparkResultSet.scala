@@ -31,6 +31,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   val rows = sparkDataFrame.collect()
   var row = -1L
   var wasLastGetNull = false
+  val count = sparkDataFrame.count()
   
   def unwrap[T](iface: Class[T]): T = sparkDataFrame.asInstanceOf[T]
 
@@ -44,7 +45,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
 
   def getObject[T](colName: String,getAs: Class[T]): T = getObject[T](findColumn(colName),getAs)
   def getObject[T](columnIndex: Int,getAs: Class[T]): T = {
-    if(row >= 0 && row < sparkDataFrame.count()){
+    if(row >= 0 && row < count){
       val ret = rows(row.toInt).get(columnIndex-1)
       if(ret == null)
         wasLastGetNull = true
@@ -207,40 +208,40 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
     row < 0
 
   def isAfterLast(): Boolean =
-    row >= sparkDataFrame.count()
+    row >= count
 
   def isFirst(): Boolean =
     row == 0
 
   def isLast(): Boolean =
-    row == sparkDataFrame.count()-1
+    row == count-1
 
   def beforeFirst(): Unit = {
    row = -1
   }
 
   def afterLast(): Unit = {
-   row = sparkDataFrame.count()
+   row = count
   }
 
   def first(): Boolean = {
     row = 0  
-    sparkDataFrame.count() > 0 
+    count > 0
   }
   
   def last(): Boolean = {
-    row = sparkDataFrame.count() -1
-    sparkDataFrame.count() > 0 
+    row = count -1
+    count > 0
   }
   
   def absolute(row: Int): Boolean = {
     this.row = row
-    row < sparkDataFrame.count() && row >= 0
+    row < count && row >= 0
   }
   
   def relative(rows: Int): Boolean = {
     row = row+rows
-    row < sparkDataFrame.count() && row >= 0
+    row < count && row >= 0
   }
 
   def previous(): Boolean ={
@@ -250,7 +251,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   
   def next(): Boolean= {
     row = row+1
-    row < sparkDataFrame.count()
+    row < count
   }
   
   def close(): Unit = {
