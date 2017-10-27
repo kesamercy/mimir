@@ -103,7 +103,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     try {
       (cantLoad || metaDataQuery) match {
         case false => // all tables are part of spark so use spark
-          val df = spark.sql(sel.replace("LIMIT 10000",""))
+          val df = spark.sql(sel)
+          //.replace("LIMIT 10000","")
 //          spark.sql("SELECT SUBQ_A.C AS C, SUBQ_A.MIMIR_ROWID AS MIMIR_ROWID FROM (SELECT * FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A) SUBQ_A").show()
 //          val dfSane = spark.sql("SELECT SUBQ_A.C AS C, SUBQ_A.MIMIR_ROWID AS MIMIR_ROWID FROM (SELECT * FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A LIMIT 10000) SUBQ_A")
           /*

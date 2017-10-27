@@ -68,15 +68,13 @@ abstract class SparkML {
 
     val schema = db.bestGuessSchema(query).toList
     val sqlContext = getSparkSqlContext()
-    val df = sqlContext.createDataFrame(
+    sqlContext.createDataFrame(
       getSparkSession().parallelize(
         db.query(query, mimir.exec.mode.BestGuess)(results => {
           results.toList.map(row =>{
             Row((valuePreparer(row.provenance, TString()) +: row.tuple.zip(schema).map(value => valuePreparer(value._1, value._2._2))): _*)
           })
       })), StructType(StructField("rowid", StringType, false) :: schema.map(col => StructField(col._1, sparkTyper(col._2), true))))
-    df.show()
-    df
   }
   
   def applyModelDB(model : PipelineModel, query : Operator, db:Database, valuePreparer:ValuePreparer = prepareValueApply, sparkTyper:Type => DataType = getSparkType, dfTransformer:Option[DataFrameTransformer] = Some(nullValueReplacement)) : DataFrame = {
