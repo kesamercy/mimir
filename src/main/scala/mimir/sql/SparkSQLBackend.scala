@@ -117,7 +117,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
             case e:Exception =>
           }
           */
-//          df.show()
+          df.show()
           new SparkResultSet(df)
 
         case true =>
