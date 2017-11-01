@@ -384,9 +384,12 @@ class JDBCBackend(val backend: String, val filename: String)
   }
 
   override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = {
-    Some(this.resultRows(s"SELECT query FROM $table WHERE name = ?",
-      List(StringPrimitive(name.toUpperCase))
-    ))
+    val queryResults: Seq[Seq[PrimitiveValue]] = this.resultRows(s"SELECT QUERY, METADATA FROM $table WHERE name = ?",
+      List(StringPrimitive(name.toUpperCase)))
+    if (queryResults.size > 0)
+      Some(queryResults)
+    else
+      None
   }
 
   override def setDB(db: Database): Unit = ???

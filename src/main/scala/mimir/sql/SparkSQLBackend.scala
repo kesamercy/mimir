@@ -73,8 +73,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def execute(sel: String): ResultSet =
   {
-    var cantLoad:Boolean = false
-    var metaDataQuery:Boolean = false
+    var cantLoad:Boolean = false // if for some reason one or more table can't be loaded
+    var isMetaDataQuery:Boolean = false // to check if it's a query on some meta-data table in the backend
+    val lensList: ListBuffer[String] = ListBuffer[String]() // list of lenses in the query
 
     this.synchronized({
       try {
@@ -82,14 +83,14 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           throw new SQLException("Trying to use unopened connection!")
         }
 
-        // will need to detect non-deterministic queries
-
         val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
         val tList:Seq[String] = tableList.map((t)=> t._1)
 
-        metaDataQuery = !tList.intersect(blackListTables).isEmpty
+        isMetaDataQuery = !tList.intersect(blackListTables).isEmpty
 
         tableList.foreach((x) => {
+          if(isView(x._1,"MIMIR_VIEWS"))
+            lensList += x._1
           if(!loadTableIfNotExists(x._1.toUpperCase()))
             cantLoad = true // set to true because one or more table can't be loaded, this might be a backend query then
         })
@@ -101,28 +102,24 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     })
 
     try {
-      (cantLoad || metaDataQuery) match {
-        case false => // all tables are part of spark so use spark
-          val df = spark.sql(sel)
-          //.replace("LIMIT 10000","")
-//          spark.sql("SELECT SUBQ_A.C AS C, SUBQ_A.MIMIR_ROWID AS MIMIR_ROWID FROM (SELECT * FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A) SUBQ_A").show()
-//          val dfSane = spark.sql("SELECT SUBQ_A.C AS C, SUBQ_A.MIMIR_ROWID AS MIMIR_ROWID FROM (SELECT * FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A LIMIT 10000) SUBQ_A")
-          /*
-          try{
-            //val df = spark.sql("SELECT MTA_RAW.RECORDEDATTIME AS RECORDEDATTIME, MTA_RAW.DIRECTIONREF AS DIRECTIONREF, MTA_RAW.JOURNEYPATTERNREF AS JOURNEYPATTERNREF, MTA_RAW.PUBLISHEDLINENAME AS PUBLISHEDLINENAME, MTA_RAW.ORIGINREF AS ORIGINREF, MTA_RAW.DESTINATIONREF AS DESTINATIONREF, MTA_RAW.DESTINATIONNAME AS DESTINATIONNAME, MTA_RAW.BEARING AS BEARING, MTA_RAW.PROGRESSRATE AS PROGRESSRATE, MTA_RAW.BLOCKREF AS BLOCKREF, MTA_RAW.VEHICLEREF AS VEHICLEREF, MTA_RAW.ORIGINAIMEDDEPARTURETIME AS ORIGINAIMEDDEPARTURETIME, MTA_RAW.PROGRESSSTATUS AS PROGRESSSTATUS, MTA_RAW.DATEDVEHICLEJOURNEYREF AS DATEDVEHICLEJOURNEYREF, MTA_RAW.VEHICLELOCATION_LONGITUDE AS VEHICLELOCATION_LONGITUDE, MTA_RAW.VEHICLELOCATION_LATITUDE AS VEHICLELOCATION_LATITUDE, MTA_RAW.EXPECTEDARRIVALTIME AS EXPECTEDARRIVALTIME, MTA_RAW.ARRIVALPROXIMITYTEXT AS ARRIVALPROXIMITYTEXT, MTA_RAW.DISTANCEFROMSTOP AS DISTANCEFROMSTOP, MTA_RAW.NUMBEROFSTOPSAWAY AS NUMBEROFSTOPSAWAY, MTA_RAW.STOPPOINTREF AS STOPPOINTREF, MTA_RAW.VISITNUMBER AS VISITNUMBER, MTA_RAW.STOPPOINTNAME AS STOPPOINTNAME, MTA_RAW.SCHEDULEDARRIVALTIME AS SCHEDULEDARRIVALTIME, MTA_RAW.ROWID AS ROWID, MTA_RAW.ROWID AS MIMIR_ROWID FROM MTA_RAW AS MTA_RAW")
-            val df = spark.sql("SELECT SUBQ_RECORDEDATTIME.BEARING AS AVG FROM (SELECT MTA_RAW.RECORDEDATTIME AS RECORDEDATTIME, MTA_RAW.DIRECTIONREF AS DIRECTIONREF, MTA_RAW.JOURNEYPATTERNREF AS JOURNEYPATTERNREF, MTA_RAW.PUBLISHEDLINENAME AS PUBLISHEDLINENAME, MTA_RAW.ORIGINREF AS ORIGINREF, MTA_RAW.DESTINATIONREF AS DESTINATIONREF, MTA_RAW.DESTINATIONNAME AS DESTINATIONNAME, MTA_RAW.BEARING AS BEARING, MTA_RAW.PROGRESSRATE AS PROGRESSRATE, MTA_RAW.BLOCKREF AS BLOCKREF, MTA_RAW.VEHICLEREF AS VEHICLEREF, MTA_RAW.ORIGINAIMEDDEPARTURETIME AS ORIGINAIMEDDEPARTURETIME, MTA_RAW.PROGRESSSTATUS AS PROGRESSSTATUS, MTA_RAW.DATEDVEHICLEJOURNEYREF AS DATEDVEHICLEJOURNEYREF, MTA_RAW.VEHICLELOCATION_LONGITUDE AS VEHICLELOCATION_LONGITUDE, MTA_RAW.VEHICLELOCATION_LATITUDE AS VEHICLELOCATION_LATITUDE, MTA_RAW.EXPECTEDARRIVALTIME AS EXPECTEDARRIVALTIME, MTA_RAW.ARRIVALPROXIMITYTEXT AS ARRIVALPROXIMITYTEXT, MTA_RAW.DISTANCEFROMSTOP AS DISTANCEFROMSTOP, MTA_RAW.NUMBEROFSTOPSAWAY AS NUMBEROFSTOPSAWAY, MTA_RAW.STOPPOINTREF AS STOPPOINTREF, MTA_RAW.VISITNUMBER AS VISITNUMBER, MTA_RAW.STOPPOINTNAME AS STOPPOINTNAME, MTA_RAW.SCHEDULEDARRIVALTIME AS SCHEDULEDARRIVALTIME, MTA_RAW.ROWID AS ROWID, MTA_RAW.ROWID AS MIMIR_ROWID FROM MTA_RAW AS MTA_RAW) SUBQ_RECORDEDATTIME")
-            df.show()
-          }
-          catch{
-            case e:Exception =>
-          }
-          */
-          df.show()
-          new SparkResultSet(df)
-
-        case true =>
-          // one or more tables is not part of spark, so try backend
-          metaDataStore.execute(sel)
+      if(lensList.nonEmpty){
+        // is a non-deterministic query
+        // First need to get and load all the tables for
+        metaDataStore.execute(sel)
+      }
+      else if(isMetaDataQuery){
+        // is a query on the backend
+        metaDataStore.execute(sel)
+      }
+      else if(cantLoad){
+        // can't load one or more table so attempt to perform backend query
+        metaDataStore.execute(sel)
+      }
+      else {
+        // regular spark query with tables loaded
+        val df = spark.sql(sel)
+        // df.show()
+        new SparkResultSet(df)
       }
     } catch {
       case e: SQLException => println(e.toString+"during\n"+sel)
@@ -237,15 +234,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   }
 
   override def getView(name: String, table: String): Option[Seq[Seq[PrimitiveValue]]] = {
-    loadTableIfNotExists(table.toUpperCase()) // this will probably go away
-    val n = name.toUpperCase()
-    // should change to use the metaDataBackend
-    // will need a result set to df function possibly
-    val df = spark.sql(s"SELECT query FROM $table WHERE name = '$n'")
-    if(df.count() == 0)
-      None
-    else
-      Some(JDBCUtils.extractAllRows(new SparkResultSet(df)).flush)
+    metaDataStore.getView(name,table)
   }
 
   def convertToSchema(sparkSchema: Seq[StructField]): Seq[(String, Type)] = {
@@ -271,6 +260,13 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
             case RowIdPrimitive(r)    => r.toString()
             case NullPrimitive()      => "NULL"
           }
+  }
+
+  def isView(name: String, table: String): Boolean = {
+    metaDataStore.getView(name,table) match {
+      case Some(res) => true
+      case None => false
+    }
   }
 
   def getAllTables(): Seq[String] = {
