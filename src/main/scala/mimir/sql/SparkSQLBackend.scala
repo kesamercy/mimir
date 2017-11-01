@@ -75,8 +75,6 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
           throw new SQLException("Trying to use unopened connection!")
         }
 
-        loadTableIfNotExists("R")
-
         // will need to detect non-deterministic queries
 
 //        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
@@ -93,7 +91,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
     try {
       val start = DateTime.now
       val df = spark.sql(sel)
-      df.show()
+      df.collect()
       val end = DateTime.now
       println(s"SPARK SQL took: ${(start to end).millis} ms")
       val ret = new SparkResultSet(df)

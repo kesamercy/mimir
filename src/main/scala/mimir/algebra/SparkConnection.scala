@@ -46,8 +46,8 @@ object SparkConnection {
         val tempTableName = tableName + "_TEMP"
 
         val df = spark.read.jdbc(sparkConnectionUrl,s"(SELECT *, ROWID FROM $tableName)",sparkConnectionProperties)//.repartition(numberPartitions)
-//        val level = StorageLevel.MEMORY_ONLY
-//        df.persist(level)
+        val level = StorageLevel.MEMORY_ONLY
+        df.persist(level)
 
         df.createOrReplaceTempView(tableName) // alias has already been checked
         //spark.sql(s"CREATE TABLE IF NOT EXISTS $tableName as SELECT * FROM $tempTableName")
