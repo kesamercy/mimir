@@ -14,9 +14,11 @@ import scala.collection.mutable.ListBuffer
 import mimir.sql.sparksql.SparkResultSet
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField}
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.functions._
 import org.joda.time.DateTime
 import com.github.nscala_time.time.Imports._
+import mimir.models.Model
 
 class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/testing.db"))
   extends Backend
@@ -90,7 +92,20 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
 
     try {
       val start = DateTime.now
-      val df = spark.sql(sel)
+//      val df = spark.sql(sel)
+//      df.collect()
+      val myUDF = udf((x: Int) => x + 1)
+      def rowUDF(model: Model) = udf((r: Row) => {
+        val hello = model.name
+        r.get(0).asInstanceOf[Long] + r.get(1).asInstanceOf[Long]
+      })
+      val mod = db.models.get("TESTING:SPARK:C")
+      val df = spark.sqlContext.table("TEST").select(
+        col("A"),
+        col("B"),
+//        when(col("C").isNull, myUDF(col("B"))).otherwise(col("C")),
+        when(col("C").isNull, rowUDF(mod)(struct(col("A"), col("B")))).otherwise(col("C")).alias("C"),
+        col("ROWID")).agg(sum("C"))
       df.collect()
       val end = DateTime.now
       println(s"SPARK SQL took: ${(start to end).millis} ms")
