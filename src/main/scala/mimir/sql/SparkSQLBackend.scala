@@ -18,7 +18,7 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.joda.time.DateTime
 import com.github.nscala_time.time.Imports._
-import mimir.models.Model
+import mimir.models.{Model, SimpleSparkClassifierModel}
 
 class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/testing.db"))
   extends Backend
@@ -94,18 +94,22 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
       val start = DateTime.now
 //      val df = spark.sql(sel)
 //      df.collect()
-      val myUDF = udf((x: Int) => x + 1)
-      def rowUDF(model: Model) = udf((r: Row) => {
-        val hello = model.name
-        r.get(0).asInstanceOf[Long] + r.get(1).asInstanceOf[Long]
-      })
-      val mod = db.models.get("TESTING:SPARK:C")
-      val df = spark.sqlContext.table("TEST").select(
-        col("A"),
-        col("B"),
-//        when(col("C").isNull, myUDF(col("B"))).otherwise(col("C")),
-        when(col("C").isNull, rowUDF(mod)(struct(col("A"), col("B")))).otherwise(col("C")).alias("C"),
-        col("ROWID")).agg(sum("C"))
+//      val mod = db.models.get("TESTING:SPARK:C")
+
+//      def bestGuess(model: Model) = udf((r: Row) => {
+//        val argList = List(RowIdPrimitive(r.get(0).toString()))
+//        val hintList = List(IntPrimitive(r.get(1).asInstanceOf[Long]), IntPrimitive(r.get(2).asInstanceOf[Long]), NullPrimitive())
+//        model.bestGuess(0, argList, hintList).asLong
+//        10
+//      })
+      val df = spark.sql(sel)
+
+//      val df = spark.sqlContext.table("TEST").select(
+//        col("A"),
+//        col("B"),
+////        when(col("C").isNull, myUDF(col("B"))).otherwise(col("C")),
+//        when(col("C").isNull, bestGuess(mod)(struct(col("ROWID"), col("A"), col("B")))).otherwise(col("C")).alias("C"),
+//        col("ROWID")).limit(20)
       df.collect()
       val end = DateTime.now
       println(s"SPARK SQL took: ${(start to end).millis} ms")
@@ -116,6 +120,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, val metaDataStore: JDBCB
         throw new SQLException("Error in "+sel, e)
     }
   }
+
   def execute(sel: String, args: Seq[PrimitiveValue]): ResultSet =
   {
     this.synchronized({

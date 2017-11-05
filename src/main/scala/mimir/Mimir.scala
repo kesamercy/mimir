@@ -62,8 +62,6 @@ object Mimir extends LazyLogging {
     }
     db.backend.open()
 
-    backend.loadTableIfNotExists("TEST")
-
     db.initializeDBForMimir();
 
     // Check for one-off commands

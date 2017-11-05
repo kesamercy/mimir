@@ -37,7 +37,7 @@ object DBTestInstances
           }
           val oldDBExists = dbFile.exists();
           val backend:Backend = jdbcBackendMode match {
-            case "spark" => new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", tempDBName+".db")))
+            case "spark" => new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", tempDBName+".db")), new JDBCBackend("sqlite", tempDBName+".db"))
             case "jdbc" => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
             case _ => new JDBCBackend(jdbcBackendMode, tempDBName+".db")
           }
@@ -81,6 +81,11 @@ abstract class SQLTestSpecification(val tempDBName:String, config: Map[String,St
 
   def db = DBTestInstances.get(tempDBName, config)
 
+  def loadTable(table: String): Unit = {
+    if (db.backend.isInstanceOf[SparkSQLBackend]) {
+      db.backend.asInstanceOf[SparkSQLBackend].loadTableIfNotExists(table)
+    }
+  }
   def select(s: String) = {
     stmt(s) match {
       case sel:net.sf.jsqlparser.statement.select.Select => 
