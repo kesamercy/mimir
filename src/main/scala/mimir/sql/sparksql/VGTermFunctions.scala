@@ -1,12 +1,13 @@
 package mimir.sql.sparksql
 
 import java.sql.SQLException
-import com.typesafe.scalalogging.slf4j.LazyLogging
 
+import com.typesafe.scalalogging.slf4j.LazyLogging
 import mimir.algebra._
 import mimir.algebra.function.FunctionRegistry
 import mimir.ctables._
 import mimir.Database
+import mimir.ctables.vgterm.BestGuess
 import mimir.util._
 
 class BestGuessVGTerm(db: Database) {
@@ -71,6 +72,13 @@ object VGTermFunctions
         Function(
           bestGuessVGTermFn, 
           List(StringPrimitive(model), IntPrimitive(idx))++
+            args.map(specialize(_))++
+            hints.map(specialize(_))
+        )
+      case BestGuess(model, idx, args, hints) =>
+        Function(
+          bestGuessVGTermFn,
+          List(StringPrimitive(model.name), IntPrimitive(idx))++
             args.map(specialize(_))++
             hints.map(specialize(_))
         )

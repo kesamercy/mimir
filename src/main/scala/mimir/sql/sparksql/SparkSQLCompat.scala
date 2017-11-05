@@ -13,14 +13,14 @@ object SparkSQLCompat {
 
   def registerFunctions(spark:org.apache.spark.sql.SparkSession):Unit = {
     spark.udf.register("SIMPLETEST", SpeedTest.SimpleTest _)
+    spark.udf.register("GROUP_AND", new mimir.sql.sparksql.GroupAnd)
+    spark.udf.register("GROUP_OR", new mimir.sql.sparksql.GroupOr)
 /*    spark.udf.register("MIMIRCAST", MimirCast.mimircast _)
     spark.udf.register("AGGTEST", new AggTest)
     spark.udf.register( "SQRT", Sqrt.sqrt _)
     spark.udf.register( "DST", Distance.distance _)
     spark.udf.register( "SPEED", Speed.speed _)
     spark.udf.register( "MINUS", Minus.minus _)
-    spark.udf.register( "GROUP_AND", new GroupAnd)
-    spark.udf.register( "GROUP_OR", new GroupOr)
     spark.udf.register( "FIRST", new First)
     spark.udf.register( "FIRST_INT", new First)
     spark.udf.register( "FIRST_FLOAT", new First)
@@ -240,7 +240,7 @@ class GroupOr extends UserDefinedAggregateFunction {
 }
 
 object SpeedTest {
-  def SimpleTest(i:Int): Int = {
+  def SimpleTest(i:Any) = {
       9001
   }
 }

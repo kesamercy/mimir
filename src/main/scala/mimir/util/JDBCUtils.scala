@@ -62,7 +62,7 @@ object JDBCUtils {
   }
 
   def getTablesFromOperator(sql: String,sparkSQLBackend: SparkSQLBackend): Seq[(String,String)] = {
-    val parser = new MimirJSqlParser(new java.io.StringReader(sql))
+    val parser = new MimirJSqlParser(new java.io.StringReader(sql.replace("IS NOT", "IS")))
     val stmt: Statement = parser.Statement()
     stmt match {
       case sel:  Select     =>

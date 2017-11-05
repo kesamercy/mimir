@@ -118,6 +118,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       else {
         // regular spark query with tables loaded
         val df = spark.sql(sel)
+        val test: ((Any,Any) => Int) = {(i,j) => j.asInstanceOf[Int]+i.asInstanceOf[Int]}
+        val testUDF = org.apache.spark.sql.functions.udf(test)
+        df.withColumn("D",testUDF(org.apache.spark.sql.functions.lit(100),df("C"))).show()
         // df.show()
         new SparkResultSet(df)
       }
@@ -313,17 +316,16 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   def canHandleVGTerms(): Boolean = inliningAvailable
 
   def specializeQuery(q: Operator): Operator = {
-    if( inliningAvailable )
-        //VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
-      q
+//    if( inliningAvailable )
+     if( true)
+      VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q,db))
      else
-        q
+      q
   }
 
   def specializeQuery(q: Operator,d: Database): Operator = {
     if( inliningAvailable )
-    //VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q))
-      q
+      VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q,d))
     else
       q
   }
