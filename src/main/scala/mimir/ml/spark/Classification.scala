@@ -140,7 +140,7 @@ object Classification extends SparkML {
   }
   
   def NaiveBayesMulticlassModel(valuePreparer:ValuePreparer = prepareValueTrain, sparkTyper:Type => DataType = getSparkType):SparkML.SparkModelGenerator = params => {
-    val training = prepareData(params.query, params.db, valuePreparer, sparkTyper).na.drop()//.withColumn("label", toLabel($"topic".like("sci%"))).cache
+    val training = prepareData(params.query, params.db, valuePreparer, sparkTyper)//.na.drop()//.withColumn("label", toLabel($"topic".like("sci%"))).cache
     val cols = training.schema.fields.tail
     //training.show()
     val indexer = new StringIndexer().setInputCol(params.predictionCol).setOutputCol("label").setHandleInvalid("skip")

@@ -3,17 +3,19 @@ package mimir.sql
 import java.sql._
 
 import mimir.Database
-import mimir.Methods
 import mimir.algebra._
 import mimir.ml.spark.SparkML
 import mimir.util.JDBCUtils
 import mimir.sql.sparksql.{SparkResultSet, _}
+import org.apache.spark.ml.Model
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField}
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.functions._
+import mimir.models.{Model, SimpleSparkClassifierModel}
 
 class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
   extends Backend
@@ -60,7 +62,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def enableInlining(db: Database): Unit =
   {
-      //sparksql.VGTermFunctions.register(db, spark)
+      sparksql.VGTermFunctions.register(db, spark)
       inliningAvailable = true
   }
 
@@ -76,6 +78,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     var cantLoad:Boolean = false // if for some reason one or more table can't be loaded
     var isMetaDataQuery:Boolean = false // to check if it's a query on some meta-data table in the backend
     val lensList: ListBuffer[String] = ListBuffer[String]() // list of lenses in the query
+    //SELECT SUM(CASE WHEN SUBQ_A.C IS NULL THEN BEST_GUESS_VGTERM('TEST19:SPARK:C', 0, SUBQ_A.MIMIR_ROWID, SUBQ_A.A, SUBQ_A.B, SUBQ_A.C, SUBQ_A.ROWID) ELSE SUBQ_A.C END) AS SUM, GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A
 
     this.synchronized({
       try {
@@ -83,7 +86,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           throw new SQLException("Trying to use unopened connection!")
         }
 
-        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel,this)
+        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel.replace(", GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET",""),this)
         val tList:Seq[String] = tableList.map((t)=> t._1)
 
         isMetaDataQuery = !tList.intersect(blackListTables).isEmpty
@@ -116,12 +119,36 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         metaDataStore.execute(sel)
       }
       else {
+
+        def rowUDF(model: mimir.models.Model) = udf((r: Row) => {
+          val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
+          val A: Int = r.get(0).asInstanceOf[Int]
+          val B: Int = r.get(1).asInstanceOf[Int]
+          val C: Int = r.get(2).asInstanceOf[Int]
+          val rowID = r.get(3)
+          val res = m.classify(RowIdPrimitive(rowID.toString),Seq[PrimitiveValue](IntPrimitive(A),IntPrimitive(B),NullPrimitive()))
+
+          r.get(0).asInstanceOf[Int] + r.get(1).asInstanceOf[Int]
+        })
+        val mod = db.models.get("TEST21:SPARK:C")
+        val df1 = spark.sqlContext.table("R").select(
+          col("A"),
+          col("B"),
+          //when(col("C").isNull, myUDF(col("B"))).otherwise(col("C")),
+          when(col("C").isNull, rowUDF(mod)(struct(col("A"), col("B"), col("C"), col("ROWID")))).otherwise(col("C")).alias("C"),
+          col("ROWID")).agg(sum("C"))
+
+        df1.show()
+
+
         // regular spark query with tables loaded
         val df = spark.sql(sel)
+        /*
         val test: ((Any,Any) => Int) = {(i,j) => j.asInstanceOf[Int]+i.asInstanceOf[Int]}
         val testUDF = org.apache.spark.sql.functions.udf(test)
         df.withColumn("D",testUDF(org.apache.spark.sql.functions.lit(100),df("C"))).show()
-        // df.show()
+        */
+        df.show()
         new SparkResultSet(df)
       }
     } catch {

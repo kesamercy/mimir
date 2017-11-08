@@ -12,7 +12,8 @@ import mimir.util._
 
 class BestGuessVGTerm(db: Database) {
   
-  def bestGuessVGTerm(modelName : String, idx: Int, args:Seq[Any]) : Any = {
+  def bestGuessVGTerm(modelName : String, idx: Int, args:Seq[Any]) : Int = {
+    /*
     val value_mimir : ( Int,Type) => PrimitiveValue = (idx, t) => {
       t match {
         case TInt()    => IntPrimitive(args(idx).asInstanceOf[Long])
@@ -47,6 +48,8 @@ class BestGuessVGTerm(db: Database) {
       case RowIdPrimitive(r)    => r
       case NullPrimitive()      => null
     }
+    */
+    10
   }
 }
 
@@ -62,7 +65,7 @@ object VGTermFunctions
     db.functions.register(
       bestGuessVGTermFn,
       (args) => { throw new SQLException("Mimir Cannot Execute VGTerm Functions Internally") },
-      (_) => TAny()
+      (_) => TInt()
     )
   }
 

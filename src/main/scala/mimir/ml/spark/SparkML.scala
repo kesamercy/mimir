@@ -2,12 +2,12 @@ package mimir.ml.spark
 
 import mimir.algebra._
 import mimir.Database
-
-import org.apache.spark.sql.{SQLContext, DataFrame, Row}
-import org.apache.spark.{SparkContext, SparkConf}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.ml.PipelineModel
-import org.apache.spark.sql.types.{DataType, DoubleType, LongType, FloatType, BooleanType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DoubleType, FloatType, IntegerType, LongType, StringType, StructField, StructType}
 import org.apache.spark.ml.feature.Imputer
+import org.apache.spark.rdd.RDD
 
 object SparkML {
   type SparkModel = PipelineModel
@@ -86,12 +86,18 @@ abstract class SparkML {
   
   def applyModel( model : PipelineModel, cols:Seq[(String, Type)], testData : List[Seq[PrimitiveValue]], valuePreparer:ValuePreparer = prepareValueApply, sparkTyper:Type => DataType = getSparkType, dfTransformer:Option[DataFrameTransformer] = Some(nullValueReplacement)): DataFrame = {
     val sqlContext = getSparkSqlContext()
-    import sqlContext.implicits._
     val modDF = dfTransformer.getOrElse((df:DataFrame) => df)
-    model.transform(modDF(sqlContext.createDataFrame(
-      getSparkSession().parallelize(testData.map( row => {
-        Row(row.zip(cols).map(value => valuePreparer(value._1, value._2._2)):_*)
-      })), StructType(cols.toList.map(col => StructField(col._1, sparkTyper(col._2), true))))))
+    val str: StructType = StructType(cols.toList.map(col => StructField(col._1, sparkTyper(col._2), true)))
+    val t: List[Row] = testData.map( row => {
+      Row(row.zip(cols).map(value => valuePreparer(value._1, value._2._2)):_*)
+    })
+    val d: RDD[Row] = getSparkSession().parallelize(t)
+    val df: DataFrame = sqlContext.createDataFrame(d, str)
+    df.show()
+    val mdf: DataFrame = modDF(df)
+    mdf.show()
+    mdf.printSchema()
+    model.transform(mdf)
   }
   
   def extractPredictions(model : PipelineModel, predictions:DataFrame, maxPredictions:Int = 5) : Seq[(String, (String, Double))]  

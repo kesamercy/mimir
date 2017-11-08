@@ -60,7 +60,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   with SourcedFeedback
   with ModelCache
 {
-  val colIdx:Int = query.columnNames.indexOf(colName)
+  val colIdx:Int = query.columnNames.indexOf(colName) // the target column for the classifier
   val classifyUpFrontAndCache = true
   var classifyAllPredictions:Option[Map[String, Seq[(String, Double)]]] = None
   var learner: Option[SparkML.SparkModel] = None
@@ -84,7 +84,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     sparkMLInstanceType = guessSparkModelType(guessInputType) 
     TimeUtils.monitor(s"Train $name.$colName", WekaModel.logger.info(_)){
 //      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Sort(Seq(SortColumn(Function("random", Seq()), true)), Project(Seq(ProjectArg(colName, Var(colName))), query)))
-val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg(colName, Var(colName))), query))
+      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg("A", Var("A")),ProjectArg("B", Var("B")),ProjectArg("C", Var("C"))), query)) // just remove rowid
       learner = Some(sparkMLModelGenerator(ModelParams(trainingQuery, db, colName)))
     }
   }
@@ -107,17 +107,21 @@ val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(
     hasFeedback(idx, args)
 
   
-  private def classify(rowid: RowIdPrimitive, rowValueHints: Seq[PrimitiveValue]): Seq[(String,Double)] = {
+  def classify(rowid: RowIdPrimitive, rowValueHints: Seq[PrimitiveValue]): Seq[(String,Double)] = {
      {if(rowValueHints.isEmpty){
        sparkMLInstance.extractPredictions(learner.get, sparkMLInstance.applyModelDB(learner.get, 
-                Project(Seq(ProjectArg(colName, Var(colName))),
+
                   Select(
                     Comparison(Cmp.Eq, RowIdVar(), rowid),
-                    query)
-                ), db)) 
-     } else { 
-       sparkMLInstance.extractPredictions(learner.get,
-           sparkMLInstance.applyModel(learner.get,  ("rowid", TString()) +: db.bestGuessSchema(query).filter(_._1.equals(colName)), List(List(rowid, rowValueHints(colIdx)))))
+                    query).project()
+            , db))
+     } else {
+       val t: Seq[PrimitiveValue] = Seq[PrimitiveValue](rowid,rowValueHints(0),rowValueHints(1),NullPrimitive())
+       val row:List[Seq[PrimitiveValue]] = List(t)
+       val tar = Seq(("rowid", TString()), ("A", TInt()), ("B", TInt()), ("C", TInt()))
+       val m = learner.get
+       val c = sparkMLInstance.applyModel(m, tar, row)
+       sparkMLInstance.extractPredictions(learner.get, c)
      }} match {
          case Seq() => Seq()
          case x => x.unzip._2
@@ -128,8 +132,6 @@ val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(
     val classifier = learner.get
     val classifyAllQuery = Project(Seq(ProjectArg(colName, Var(colName))), query)
     val predictions = sparkMLInstance.applyModelDB(classifier, classifyAllQuery, db)
-    //val sqlContext = MultiClassClassification.getSparkSqlContext()
-    //import sqlContext.implicits._  
     
     //method 1: window, rank, and drop
     /*import org.apache.spark.sql.functions.row_number
