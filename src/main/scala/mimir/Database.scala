@@ -501,11 +501,11 @@ case class Database(backend: Backend)
       backend.update(insertCmd, result.tuple)
     })
   }
-  def select(s: String) = 
+  def select(s: String): Operator =
   {
     this.sql.convert(stmt(s).asInstanceOf[net.sf.jsqlparser.statement.select.Select])
   }
-  def stmt(s: String) = {
+  def stmt(s: String): Statement = {
     new MimirJSqlParser(new StringReader(s)).Statement()
   }
 

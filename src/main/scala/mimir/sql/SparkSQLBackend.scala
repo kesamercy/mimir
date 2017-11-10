@@ -13,7 +13,7 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField}
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import mimir.models.{Model, SimpleSparkClassifierModel}
 
@@ -131,6 +131,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           r.get(0).asInstanceOf[Int] + r.get(1).asInstanceOf[Int]
         })
         val mod = db.models.get("TEST21:SPARK:C")
+
         val df1 = spark.sqlContext.table("R").select(
           col("A"),
           col("B"),
@@ -382,4 +383,86 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   override def rowIdType: Type = TRowId()
 
   override def dateType: Type = TDate()
+
+  /*
+  * Converts a mimir operator to a set of spark operators that return a dataframe
+  * This will assume the operator is already optimized for spark and just preforms the translation
+  * The main purpose of this instead of using SparkSQL is that this will give us the ability to pass models(objects) directly to the workers for lens queries
+  * Additionally this will allow us to use the struct type for multiple column returns as well as varying column input sizes
+  */
+
+  def OperatorToDF(oper: Operator): DataFrame = {
+
+    // Ok so here's the plan, only From Tables are the base case, we're going to recursively call this function until we finally get to union/ plain select...
+    // you may ask, "how is this efficent, won't it be trying to preform the operations at every return call???" To this I say, I hope not. Luckily DataFrames are evaluated lazily. So nothing should happen until you call show or collect on it.
+    // If this is not the case this will have been deleted and you will not have read my rhetoric, so I got that going for me
+
+    oper match { // oh boy this is going to be a large pattern match, glhf
+      case u: Union => {
+        val dfList: Seq[DataFrame] = OperatorUtils.extractUnionClauses(u).map(OperatorToDF(_))
+        ???
+      }
+      case Join(lhs: Operator, rhs: Operator) => {
+        OperatorToDF(lhs).join(OperatorToDF(rhs))
+      }
+      case Project(cols: Seq[ProjectArg], src) => {
+        val df = OperatorToDF(src)
+        val retC: Seq[Column] = cols.map((c) => {
+          c.expression match {
+            case Var(cName: String) =>
+              val t = cName
+              col(cName).alias(c.name)
+            case _ => ???
+          }
+        })
+        df.select(retC: _*) // Needs to handle functions
+      }
+      case Aggregate(gbCols: Seq[Var], aggCols: Seq[AggFunction], src: Operator) => {
+        val aggList: Map[String,String] = aggCols.map((a) => {
+          a.getColumnNames() -> a.getFunctionName()
+        }).toMap
+        val aggL: Seq[Column] = aggCols.map((a) => {
+          sum(a.getColumnNames()) as a.alias
+        })
+        if(gbCols.isEmpty) { // no groupBY
+          OperatorToDF(src).agg(aggL.head,aggL: _*)
+        }
+        else
+          OperatorToDF(src).groupBy().agg(sum("A") as "A")
+      }
+/*      case AllTarget() => { // I assume SELECT *
+        ???
+      }
+      case ProjectTarget(cols) => {
+        ???
+      }
+*/
+      case Select(cond: Expression, src: Operator) => { // WHERE clause
+        OperatorToDF(src).where(cond.toString.replace("_",".")) // just give toString a shot
+      }
+      case Limit(offset: Long, maybeCount: Option[Long], src: Operator) => {
+        // offset: Igore first _ rows, maybeCount is the limit number, src is the query
+        if(offset > 0)
+          throw new Exception("SPARK CURRENTLY DOESN'T SUPPORT OFFSET")
+        maybeCount match {
+          case Some(count) => OperatorToDF(src).limit(count.toInt)
+          case None => OperatorToDF(src)
+        }
+      }
+      // Just convert the query and add the alias
+      case View(name: String, query: Operator, annotations) => {
+        OperatorToDF(query).alias(name)
+      }
+      case AdaptiveView(schema, name: String, query: Operator, annotations) => {
+        ???
+      }
+      // Base case, maybe wrap a selection around this to tidy things up
+      case Table(name: String, alias: String, tgtSch: Seq[(String,Type)], metadata: Seq[(String,Expression,Type)]) => {
+        spark.sqlContext.table(name).alias(alias) // can select out the target schema too if needed
+      }
+      case _ => {
+        ???
+      }
+    }
+  }
 }
