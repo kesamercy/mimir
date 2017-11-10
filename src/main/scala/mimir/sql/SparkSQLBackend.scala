@@ -418,14 +418,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         df.select(retC: _*) // Needs to handle functions
       }
       case Aggregate(gbCols: Seq[Var], aggCols: Seq[AggFunction], src: Operator) => {
-        val aggList: Map[String,String] = aggCols.map((a) => {
-          a.getColumnNames() -> a.getFunctionName()
-        }).toMap
-        val aggL: Seq[Column] = aggCols.map((a) => {
+        val aggList: Seq[Column] = aggCols.map((a) => {
           sum(a.getColumnNames()) as a.alias
         })
         if(gbCols.isEmpty) { // no groupBY
-          OperatorToDF(src).agg(aggL.head,aggL: _*)
+          OperatorToDF(src).agg(aggList.head,aggList: _*)
         }
         else
           OperatorToDF(src).groupBy().agg(sum("A") as "A")
