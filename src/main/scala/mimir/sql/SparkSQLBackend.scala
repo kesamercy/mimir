@@ -3,7 +3,8 @@ package mimir.sql
 import java.sql._
 
 import mimir.Database
-import mimir.algebra._
+import mimir.algebra.{Cmp, _}
+import mimir.ctables.vgterm.BestGuess
 import mimir.ml.spark.SparkML
 import mimir.util.JDBCUtils
 import mimir.sql.sparksql.{SparkResultSet, _}
@@ -119,7 +120,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         metaDataStore.execute(sel)
       }
       else {
-
+/*
         def rowUDF(model: mimir.models.Model) = udf((r: Row) => {
           val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
           val A: Int = r.get(0).asInstanceOf[Int]
@@ -140,7 +141,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           col("ROWID")).agg(sum("C"))
 
         df1.show()
-
+*/
 
         // regular spark query with tables loaded
         val df = spark.sql(sel)
@@ -345,15 +346,21 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def specializeQuery(q: Operator): Operator = {
 //    if( inliningAvailable )
-     if( true)
-      VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q,db))
+     if( true) {
+       val ret = VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, db))
+       val test = OperatorToDF(ret)
+       ret
+     }
      else
       q
   }
 
   def specializeQuery(q: Operator,d: Database): Operator = {
-    if( inliningAvailable )
-      VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q,d))
+    if( inliningAvailable ) {
+      val ret = VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, d))
+      val test = OperatorToDF(ret)
+      ret
+    }
     else
       q
   }
@@ -408,21 +415,18 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       case Project(cols: Seq[ProjectArg], src) => {
         val df = OperatorToDF(src)
         val retC: Seq[Column] = cols.map((c) => {
-          c.expression match {
-            case Var(cName: String) =>
-              val t = cName
-              col(cName).alias(c.name)
-            case _ => ???
-          }
+          ExpressionToSparkColumn(c.expression).alias(c.name)
         })
         df.select(retC: _*) // Needs to handle functions
       }
       case Aggregate(gbCols: Seq[Var], aggCols: Seq[AggFunction], src: Operator) => {
         val aggList: Seq[Column] = aggCols.map((a) => {
-          sum(a.getColumnNames()) as a.alias
+          val e: Expression = a.args(0) // only supports one arg for now
+          sum(ExpressionToSparkColumn(e)) as a.alias
         })
         if(gbCols.isEmpty) { // no groupBY
-          OperatorToDF(src).agg(aggList.head,aggList: _*)
+//          OperatorToDF(src).agg(aggList.head,aggList: _*)
+          OperatorToDF(src).agg(aggList.head)
         }
         else
           OperatorToDF(src).groupBy().agg(sum("A") as "A")
@@ -435,7 +439,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       }
 */
       case Select(cond: Expression, src: Operator) => { // WHERE clause
-        OperatorToDF(src).where(cond.toString.replace("_",".")) // just give toString a shot
+        val c: Column = ExpressionToSparkColumn(cond)
+        OperatorToDF(src).where(c)
       }
       case Limit(offset: Long, maybeCount: Option[Long], src: Operator) => {
         // offset: Igore first _ rows, maybeCount is the limit number, src is the query
@@ -458,8 +463,66 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         spark.sqlContext.table(name).alias(alias) // can select out the target schema too if needed
       }
       case _ => {
-        ???
+        ??? // whelp you encountered a case I didn't get to or didn't think of, good luck
       }
+    }
+  }
+
+  // For selection a column is expected, this will be the boolean result
+  def ExpressionToSparkColumn(e: Expression): Column = {
+    e match {
+      case Arithmetic(op: Arith.Op,lhs: Expression,rhs: Expression) =>
+        CombineEnum(op,ExpressionToSparkColumn(lhs),ExpressionToSparkColumn(rhs))
+      case Comparison(op: Cmp.Op,lhs,rhs) =>
+        CombineEnum(op,ExpressionToSparkColumn(lhs),ExpressionToSparkColumn(rhs))
+      case Conditional(condition: Expression, thenClause: Expression, elseClause: Expression) =>
+        when(ExpressionToSparkColumn(condition),ExpressionToSparkColumn(thenClause)).otherwise(ExpressionToSparkColumn(elseClause))
+      case Function("BEST_GUESS_VGTERM",params) =>
+        val m = params(0).toString.replace("\'","")
+        val model = db.models.get(m)
+        mimir.sql.sparksql.VGTermFunctions.rowUDF(model)(struct(col("C")))
+      case BestGuess(model, idx, args, hints) =>
+        mimir.sql.sparksql.VGTermFunctions.rowUDF(model)(struct(col("C")))
+      case IsNullExpression(child: Expression) => ExpressionToSparkColumn(child).isNull
+        // base case items
+      case Var(c) => col(c)
+      case IntPrimitive(i) => lit(i)
+      case FloatPrimitive(i) => lit(i)
+      case StringPrimitive(s) => lit(s)
+        // unknown
+      case _ => ???
+    }
+  }
+
+  def en(operation: Enumeration) = {
+    operation match {
+      case Arith.And =>
+    }
+  }
+
+
+  // for determining which operator to use, there is not direct conversion I know of so this is the hack for that
+  def CombineEnum(operation: Any, lhs: Column, rhs: Column): Column = {
+    operation match {
+      // arithmetic
+      case Arith.And => lhs.and(rhs)
+      case Arith.Or => lhs.or(rhs)
+      case Arith.BitAnd => lhs.bitwiseAND(rhs)
+      case Arith.BitOr => lhs.bitwiseOR(rhs)
+      case Arith.Div => lhs.divide(rhs)
+      case Arith.Mult => lhs.multiply(rhs)
+      case Arith.Sub => lhs.minus(rhs)
+      case Arith.Add => lhs.+(rhs)
+      // logical
+      case Cmp.Eq => lhs.<=>(rhs)
+      case Cmp.Gt => lhs.>(rhs)
+      case Cmp.Lt => lhs.<(rhs)
+      case Cmp.Gte => lhs.>=(rhs)
+      case Cmp.Lte => lhs.<=(rhs)
+      case Cmp.Neq => lhs.notEqual(rhs)
+      case Cmp.Like => lhs.like(rhs.toString())
+
+      case _ => ??? // not implimented
     }
   }
 }

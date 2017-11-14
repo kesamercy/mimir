@@ -8,7 +8,9 @@ import mimir.algebra.function.FunctionRegistry
 import mimir.ctables._
 import mimir.Database
 import mimir.ctables.vgterm.BestGuess
+import mimir.models.SimpleSparkClassifierModel
 import mimir.util._
+import org.apache.spark.sql.Row
 
 class BestGuessVGTerm(db: Database) {
   
@@ -68,6 +70,17 @@ object VGTermFunctions
       (_) => TInt()
     )
   }
+
+  def rowUDF(model: mimir.models.Model) = org.apache.spark.sql.functions.udf((r: Row) => {
+    val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
+    val A: Int = r.get(0).asInstanceOf[Int]
+    val B: Int = r.get(1).asInstanceOf[Int]
+    val C: Int = r.get(2).asInstanceOf[Int]
+    val rowID = r.get(3)
+    val res = m.classify(RowIdPrimitive(rowID.toString),Seq[PrimitiveValue](IntPrimitive(A),IntPrimitive(B),NullPrimitive()))
+
+    r.get(0).asInstanceOf[Int] + r.get(1).asInstanceOf[Int]
+  })
 
   def specialize(e: Expression): Expression = {
     e match {

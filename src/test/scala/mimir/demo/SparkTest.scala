@@ -73,7 +73,7 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
 //      })
       //      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
       //      val res4: ResultIterator = query("SELECT * FROM CITYRAW")
-
+/*
       val oper1 = convert("SELECT * FROM R")
       val df1: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper1)
       df1.show()
@@ -90,10 +90,31 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       val df4: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper4)
       df4.show()
 
+      val oper41 = convert("SELECT A, B FROM R WHERE A < 3 AND B < 3")
+      val df41: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper41)
+      df41.show()
+
+      val oper42 = convert("SELECT A, B FROM R WHERE A < B AND B < 3")
+      val df42: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper42)
+      df42.show()
+
       val oper5 = convert("SELECT SUM(A) FROM R")
       val df5: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper5)
       df5.show()
+*/
+      val oper6 = convert("SELECT A + 5 FROM R")
+      val df6: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper6)
+      df6.show()
 
+      val lensName = "TEST22"
+//      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
+      query(s"SELECT SUM(C) FROM $lensName"){output.print(_)}
+
+/*
+      val oper6 = convert("SELECT BEST_GUESS(A) FROM R")
+      val df6: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(db.backend.specializeQuery(oper6,db))
+      df6.show()
+*/
 
 //      query("SELECT SUM(C) FROM TEST21"){output.print(_)}
 //      while(true){}
