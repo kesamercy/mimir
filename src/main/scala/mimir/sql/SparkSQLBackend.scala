@@ -359,6 +359,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     if( inliningAvailable ) {
       val ret = VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, d))
       val test = OperatorToDF(ret)
+      test.show()
       ret
     }
     else
@@ -422,14 +423,20 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       case Aggregate(gbCols: Seq[Var], aggCols: Seq[AggFunction], src: Operator) => {
         val aggList: Seq[Column] = aggCols.map((a) => {
           val e: Expression = a.args(0) // only supports one arg for now
-          sum(ExpressionToSparkColumn(e)) as a.alias
+          val c: Column = ExpressionToSparkColumn(e)
+          a.function match {
+            case "SUM" => sum(c) as a.alias
+            case "GROUP_AND" => min(c) as a.alias   // hack
+            case "GROUP_OR" => max(c) as a.alias  // hack
+          }
         })
         if(gbCols.isEmpty) { // no groupBY
 //          OperatorToDF(src).agg(aggList.head,aggList: _*)
           OperatorToDF(src).agg(aggList.head)
         }
         else
-          OperatorToDF(src).groupBy().agg(sum("A") as "A")
+          ???
+          //OperatorToDF(src).groupBy().agg(sum("A") as "A")
       }
 /*      case AllTarget() => { // I assume SELECT *
         ???
@@ -471,24 +478,39 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   // For selection a column is expected, this will be the boolean result
   def ExpressionToSparkColumn(e: Expression): Column = {
     e match {
-      case Arithmetic(op: Arith.Op,lhs: Expression,rhs: Expression) =>
-        CombineEnum(op,ExpressionToSparkColumn(lhs),ExpressionToSparkColumn(rhs))
-      case Comparison(op: Cmp.Op,lhs,rhs) =>
-        CombineEnum(op,ExpressionToSparkColumn(lhs),ExpressionToSparkColumn(rhs))
+      case Arithmetic(op: Arith.Op, lhs: Expression, rhs: Expression) =>
+        CombineEnum(op, ExpressionToSparkColumn(lhs), ExpressionToSparkColumn(rhs))
+
+      case Comparison(op: Cmp.Op, lhs, rhs) =>
+        CombineEnum(op, ExpressionToSparkColumn(lhs), ExpressionToSparkColumn(rhs))
+
       case Conditional(condition: Expression, thenClause: Expression, elseClause: Expression) =>
-        when(ExpressionToSparkColumn(condition),ExpressionToSparkColumn(thenClause)).otherwise(ExpressionToSparkColumn(elseClause))
-      case Function("BEST_GUESS_VGTERM",params) =>
-        val m = params(0).toString.replace("\'","")
-        val model = db.models.get(m)
-        mimir.sql.sparksql.VGTermFunctions.rowUDF(model)(struct(col("C")))
-      case BestGuess(model, idx, args, hints) =>
-        mimir.sql.sparksql.VGTermFunctions.rowUDF(model)(struct(col("C")))
+        when(ExpressionToSparkColumn(condition), ExpressionToSparkColumn(thenClause)).otherwise(ExpressionToSparkColumn(elseClause))
+
+      case Function("BEST_GUESS_VGTERM", params: Seq[Expression]) => // best guess vgterm for spark models
+        val model: mimir.models.Model = db.models.get(params(0).toString.replace("\'", ""))
+        val idx: Int = (params(1).asInstanceOf[IntPrimitive]).asInt
+        val cols: Seq[Expression] = params.slice(3, params.size) // strips away mimir_rowID
+        val columns: Seq[Column] = cols.map((c) => {
+          ExpressionToSparkColumn(c)
+        })
+        mimir.sql.sparksql.VGTermFunctions.rowUDF(model)(struct(columns: _*))
+
       case IsNullExpression(child: Expression) => ExpressionToSparkColumn(child).isNull
+      case IsNotNullExpression(child: Expression) =>
+        ExpressionToSparkColumn(child).isNotNull
+      case Not(e: Expression) => {
+        e match {
+          case IsNullExpression(c) => ExpressionToSparkColumn(IsNotNullExpression(c))
+          case _ => ??? // just call on the opposite
+        }
+      }
         // base case items
       case Var(c) => col(c)
       case IntPrimitive(i) => lit(i)
       case FloatPrimitive(i) => lit(i)
       case StringPrimitive(s) => lit(s)
+      case BoolPrimitive(b) => lit(b)
         // unknown
       case _ => ???
     }

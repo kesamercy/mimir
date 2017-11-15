@@ -94,10 +94,10 @@ abstract class SparkML {
     val d: RDD[Row] = getSparkSession().parallelize(t)
     val df: DataFrame = sqlContext.createDataFrame(d, str)
     df.show()
-    val mdf: DataFrame = modDF(df)
-    mdf.show()
-    mdf.printSchema()
-    model.transform(mdf)
+//    val mdf: DataFrame = modDF(df)
+//    mdf.show()
+//    mdf.printSchema()
+    model.transform(df)
   }
   
   def extractPredictions(model : PipelineModel, predictions:DataFrame, maxPredictions:Int = 5) : Seq[(String, (String, Double))]  

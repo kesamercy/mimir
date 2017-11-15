@@ -311,6 +311,12 @@ case class IsNullExpression(child: Expression) extends Expression {
   def rebuild(c: Seq[Expression]) = IsNullExpression(c(0))
 }
 
+case class IsNotNullExpression(child: Expression) extends Expression {
+  override def toString() = {child.toString+" IS NOT NULL"}
+  def children = List(child)
+  def rebuild(c: Seq[Expression]) = IsNotNullExpression(c(0))
+}
+
 /////////////// Primitive Values ///////////////
 
 

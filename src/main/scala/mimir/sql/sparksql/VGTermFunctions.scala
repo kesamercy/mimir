@@ -11,6 +11,7 @@ import mimir.ctables.vgterm.BestGuess
 import mimir.models.SimpleSparkClassifierModel
 import mimir.util._
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.types.{StructField, StructType}
 
 class BestGuessVGTerm(db: Database) {
   
@@ -73,13 +74,17 @@ object VGTermFunctions
 
   def rowUDF(model: mimir.models.Model) = org.apache.spark.sql.functions.udf((r: Row) => {
     val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
-    val A: Int = r.get(0).asInstanceOf[Int]
-    val B: Int = r.get(1).asInstanceOf[Int]
-    val C: Int = r.get(2).asInstanceOf[Int]
-    val rowID = r.get(3)
-    val res = m.classify(RowIdPrimitive(rowID.toString),Seq[PrimitiveValue](IntPrimitive(A),IntPrimitive(B),NullPrimitive()))
+    val schema: List[StructField] = r.schema.toList
+    val a = schema(0)
+    val b = schema(1)
 
-    r.get(0).asInstanceOf[Int] + r.get(1).asInstanceOf[Int]
+    val A: Long = r.get(0).asInstanceOf[Long]
+    val B: Long = r.get(1).asInstanceOf[Long]
+//    val C: Int = r.get(2).asInstanceOf[Int]
+    val rowID = r.get(3).toString
+    val res = m.classify(RowIdPrimitive(rowID),Seq[PrimitiveValue](FloatPrimitive(A),FloatPrimitive(B),NullPrimitive()))
+    val y: Long = 10
+    y
   })
 
   def specialize(e: Expression): Expression = {

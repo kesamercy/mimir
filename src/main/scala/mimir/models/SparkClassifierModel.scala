@@ -24,12 +24,12 @@ object SparkClassifierModel
   val TRAINING_LIMIT = 10000
   val TOKEN_LIMIT = 100
   val availableSparkModels = Map("Classification" -> (Classification, Classification.NaiveBayesMulticlassModel()), "Regression" -> (Regression, Regression.GeneralizedLinearRegressorModel()))
-  
-  def train(db: Database, name: String, cols: Seq[String], query:Operator): Map[String,(Model,Int,Seq[Expression])] = 
+
+  def train(db: Database, name: String, cols: Seq[String], query:Operator): Map[String,(Model,Int,Seq[Expression])] =
   {
     cols.map( (col) => {
       val modelName = s"$name:$col"
-      val model = 
+      val model =
         db.models.getOption(modelName) match {
           case Some(model) => model
           case None => {
@@ -48,15 +48,15 @@ object SparkClassifierModel
     }).toMap
   }
 
-  
 
-  
+
+
 }
 
 @SerialVersionUID(1001L)
 class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
-  extends Model(name) 
-  with NeedsReconnectToDatabase 
+  extends Model(name)
+  with NeedsReconnectToDatabase
   with SourcedFeedback
   with ModelCache
 {
@@ -64,14 +64,14 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   val classifyUpFrontAndCache = true
   var classifyAllPredictions:Option[Map[String, Seq[(String, Double)]]] = None
   var learner: Option[SparkML.SparkModel] = None
-  
-  var sparkMLInstanceType = "Classification" 
-  
+
+  var sparkMLInstanceType = "Classification"
+
   @transient var db: Database = null
-  
+
   def sparkMLInstance = SparkClassifierModel.availableSparkModels.getOrElse(sparkMLInstanceType, (Classification, Classification.NaiveBayesMulticlassModel()))._1
   def sparkMLModelGenerator = SparkClassifierModel.availableSparkModels.getOrElse(sparkMLInstanceType, (Classification, Classification.NaiveBayesMulticlassModel()))._2
-  
+
   def getCacheKey(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue] ) : String = args(0).asString
   def getFeedbackKey(idx: Int, args: Seq[PrimitiveValue] ) : String = args(0).asString
 
@@ -81,14 +81,14 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   def train(db:Database)
   {
     this.db = db
-    sparkMLInstanceType = guessSparkModelType(guessInputType) 
+    sparkMLInstanceType = guessSparkModelType(guessInputType)
     TimeUtils.monitor(s"Train $name.$colName", WekaModel.logger.info(_)){
 //      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Sort(Seq(SortColumn(Function("random", Seq()), true)), Project(Seq(ProjectArg(colName, Var(colName))), query)))
       val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg("A", Var("A")),ProjectArg("B", Var("B")),ProjectArg("C", Var("C"))), query)) // just remove rowid
       learner = Some(sparkMLModelGenerator(ModelParams(trainingQuery, db, colName)))
     }
   }
- 
+
   def guessSparkModelType(t:Type) : String = {
     t match {
       case TFloat() => "Regression"
@@ -97,7 +97,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
       case x => "Classification"
     }
   }
-  
+
   def feedback(idx: Int, args: Seq[PrimitiveValue], v: PrimitiveValue): Unit =
   {
     setFeedback(idx, args, v)
@@ -106,10 +106,10 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   def isAcknowledged(idx: Int, args: Seq[PrimitiveValue]): Boolean =
     hasFeedback(idx, args)
 
-  
+
   def classify(rowid: RowIdPrimitive, rowValueHints: Seq[PrimitiveValue]): Seq[(String,Double)] = {
      {if(rowValueHints.isEmpty){
-       sparkMLInstance.extractPredictions(learner.get, sparkMLInstance.applyModelDB(learner.get, 
+       sparkMLInstance.extractPredictions(learner.get, sparkMLInstance.applyModelDB(learner.get,
 
                   Select(
                     Comparison(Cmp.Eq, RowIdVar(), rowid),
@@ -118,7 +118,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
      } else {
        val t: Seq[PrimitiveValue] = Seq[PrimitiveValue](rowid,rowValueHints(0),rowValueHints(1),NullPrimitive())
        val row:List[Seq[PrimitiveValue]] = List(t)
-       val tar = Seq(("rowid", TString()), ("A", TInt()), ("B", TInt()), ("C", TInt()))
+       val tar = Seq(("rowid", TString()), ("A", TFloat()), ("B", TFloat()), ("C", TFloat()))
        val m = learner.get
        val c = sparkMLInstance.applyModel(m, tar, row)
        sparkMLInstance.extractPredictions(learner.get, c)
@@ -127,39 +127,39 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
          case x => x.unzip._2
        }
   }
-  
+
   def classifyAll() : Unit = {
     val classifier = learner.get
     val classifyAllQuery = Project(Seq(ProjectArg(colName, Var(colName))), query)
     val predictions = sparkMLInstance.applyModelDB(classifier, classifyAllQuery, db)
-    
+
     //method 1: window, rank, and drop
     /*import org.apache.spark.sql.functions.row_number
     import org.apache.spark.sql.expressions.Window
     val w = Window.partitionBy($"rowid").orderBy($"probability".desc)
     val topPredictionsForEachRow = predictions.withColumn("rn", row_number.over(w)).where($"rn" === 1).drop("rn")88
     */
-    
+
     //method 2: group and first
     /*import org.apache.spark.sql.functions.first
-    val topPredictionsForEachRow = predictions.sort($"rowid", $"probability".desc).groupBy($"rowid").agg(first(predictions.columns.tail.head).alias(predictions.columns.tail.head), predictions.columns.tail.tail.map(col => first(col).alias(col) ):_*) 
-   
+    val topPredictionsForEachRow = predictions.sort($"rowid", $"probability".desc).groupBy($"rowid").agg(first(predictions.columns.tail.head).alias(predictions.columns.tail.head), predictions.columns.tail.tail.map(col => first(col).alias(col) ):_*)
+
     topPredictionsForEachRow.select("rowid", "predictedLabel").collect().map(row => {
       classificationCache(row.getString(0)) = classToPrimitive( row.getString(1) )
     })*/
-    
+
     //method 3: manually
     val predictionMap = sparkMLInstance.extractPredictions(classifier, predictions).groupBy(_._1).map { case (k,v) => (k,v.map(_._2))}
     classifyAllPredictions = Some(predictionMap)
-    
+
     predictionMap.map(mapEntry => {
       setCache(0,Seq(RowIdPrimitive(mapEntry._1)), null, classToPrimitive( mapEntry._2(0)._1))
     })
-    
-    db.models.persist(this)   
+
+    db.models.persist(this)
   }
 
-  private def classToPrimitive(value:String): PrimitiveValue = 
+  private def classToPrimitive(value:String): PrimitiveValue =
   {
     try {
       //mimir.parser.ExpressionParser.expr( value).asInstanceOf[PrimitiveValue]
@@ -176,7 +176,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   def hintTypes(idx: Int) = db.typechecker.schemaOf(query).map(_._2)
 
   def varType(idx: Int, args: Seq[Type]): Type = guessInputType
-  
+
   def bestGuess(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): PrimitiveValue =
   {
     val rowidstr = args(0).asString
@@ -206,7 +206,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
       }
     }
   }
-  def sample(idx: Int, randomness: Random, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): PrimitiveValue = 
+  def sample(idx: Int, randomness: Random, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): PrimitiveValue =
   {
     val rowidstr = args(0).asString
     val rowid = RowIdPrimitive(rowidstr)
@@ -225,16 +225,16 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     }) match {
       case Seq() => classToPrimitive("0")
       case classes => classToPrimitive(RandUtils.pickFromWeightedList(randomness, classes))
-    }   
+    }
   }
-  def reason(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): String = 
-  { 
+  def reason(idx: Int, args: Seq[PrimitiveValue], hints: Seq[PrimitiveValue]): String =
+  {
     val rowidstr = args(0).asString
     val rowid = RowIdPrimitive(rowidstr)
     getFeedback(idx, args) match {
       case Some(v) =>
         s"${getReasonWho(idx,args)} told me that $name.$colName = $v on row $rowid"
-      case None => 
+      case None =>
         val selem = getCache(idx, args, hints) match {
           case None => {
             if(classifyUpFrontAndCache && cache.isEmpty ){
@@ -250,11 +250,11 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
               }
               else {
                 Some(classToPrimitive(classes.head._1))
-              }  
+              }
             }
           }
           case somev@Some(v) => somev
-        }      
+        }
         selem match {
           case None => s"The classifier isn't able to make a guess about $name.$colName, so I'm defaulting to ${classToPrimitive("0")}"
           case Some(elem) => s"I used a classifier to guess that ${name.split(":")(0)}.$colName = $elem on row $rowid"
@@ -266,5 +266,5 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     this.db = db
   }
 
-  
+
 }
