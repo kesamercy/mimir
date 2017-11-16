@@ -17,6 +17,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import mimir.models.{Model, SimpleSparkClassifierModel}
+import mimir.parser.MimirJSqlParser
 
 class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
   extends Backend
@@ -63,8 +64,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def enableInlining(db: Database): Unit =
   {
-      sparksql.VGTermFunctions.register(db, spark)
-      inliningAvailable = true
+    sparksql.VGTermFunctions.register(db, spark)
+    inliningAvailable = true
   }
 
   def close(): Unit = {
@@ -74,12 +75,10 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     })
   }
 
-  def execute(sel: String): ResultSet =
-  {
+  def execute(oper: Operator): ResultSet = {
     var cantLoad:Boolean = false // if for some reason one or more table can't be loaded
     var isMetaDataQuery:Boolean = false // to check if it's a query on some meta-data table in the backend
     val lensList: ListBuffer[String] = ListBuffer[String]() // list of lenses in the query
-    //SELECT SUM(CASE WHEN SUBQ_A.C IS NULL THEN BEST_GUESS_VGTERM('TEST19:SPARK:C', 0, SUBQ_A.MIMIR_ROWID, SUBQ_A.A, SUBQ_A.B, SUBQ_A.C, SUBQ_A.ROWID) ELSE SUBQ_A.C END) AS SUM, GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A
 
     this.synchronized({
       try {
@@ -87,7 +86,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           throw new SQLException("Trying to use unopened connection!")
         }
 
-        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(sel.replace(", GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET",""),this)
+        val tableList: Seq[(String,String)] = JDBCUtils.getTablesFromOperator(oper)
         val tList:Seq[String] = tableList.map((t)=> t._1)
 
         isMetaDataQuery = !tList.intersect(blackListTables).isEmpty
@@ -100,8 +99,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         })
 
       } catch {
-        case e: SQLException => println(e.toString+"during\n"+sel)
-          throw new SQLException("Error in "+sel, e)
+        case e: SQLException => println(e.toString+"during\n"+oper.toString)
+          throw new SQLException("Error in "+oper.toString, e)
       }
     })
 
@@ -109,54 +108,98 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       if(lensList.nonEmpty){
         // is a non-deterministic query
         // First need to get and load all the tables for
-        metaDataStore.execute(sel)
+        metaDataStore.execute(db.ra.convert(oper))
       }
       else if(isMetaDataQuery){
         // is a query on the backend
-        metaDataStore.execute(sel)
+        metaDataStore.execute(db.ra.convert(oper))
       }
       else if(cantLoad){
         // can't load one or more table so attempt to perform backend query
-        metaDataStore.execute(sel)
+        metaDataStore.execute(db.ra.convert(oper))
       }
       else {
-/*
-        def rowUDF(model: mimir.models.Model) = udf((r: Row) => {
-          val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
-          val A: Int = r.get(0).asInstanceOf[Int]
-          val B: Int = r.get(1).asInstanceOf[Int]
-          val C: Int = r.get(2).asInstanceOf[Int]
-          val rowID = r.get(3)
-          val res = m.classify(RowIdPrimitive(rowID.toString),Seq[PrimitiveValue](IntPrimitive(A),IntPrimitive(B),NullPrimitive()))
-
-          r.get(0).asInstanceOf[Int] + r.get(1).asInstanceOf[Int]
-        })
-        val mod = db.models.get("TEST21:SPARK:C")
-
-        val df1 = spark.sqlContext.table("R").select(
-          col("A"),
-          col("B"),
-          //when(col("C").isNull, myUDF(col("B"))).otherwise(col("C")),
-          when(col("C").isNull, rowUDF(mod)(struct(col("A"), col("B"), col("C"), col("ROWID")))).otherwise(col("C")).alias("C"),
-          col("ROWID")).agg(sum("C"))
-
-        df1.show()
-*/
-
         // regular spark query with tables loaded
-        val df = spark.sql(sel)
-        /*
-        val test: ((Any,Any) => Int) = {(i,j) => j.asInstanceOf[Int]+i.asInstanceOf[Int]}
-        val testUDF = org.apache.spark.sql.functions.udf(test)
-        df.withColumn("D",testUDF(org.apache.spark.sql.functions.lit(100),df("C"))).show()
-        */
+        val df: DataFrame = OperatorToDF(oper)
         df.show()
         new SparkResultSet(df)
       }
     } catch {
-      case e: SQLException => println(e.toString+"during\n"+sel)
-        throw new SQLException("Error in "+sel, e)
+      case e: SQLException => println(e.toString+"during\n"+oper.toString)
+        throw new SQLException("Error in "+oper.toString, e)
     }
+  }
+
+  def execute(sel: String): ResultSet =
+  {
+    var cantLoad:Boolean = false // if for some reason one or more table can't be loaded
+  var isMetaDataQuery:Boolean = false // to check if it's a query on some meta-data table in the backend
+  val lensList: ListBuffer[String] = ListBuffer[String]() // list of lenses in the query
+    //SELECT SUM(CASE WHEN SUBQ_A.C IS NULL THEN BEST_GUESS_VGTERM('TEST19:SPARK:C', 0, SUBQ_A.MIMIR_ROWID, SUBQ_A.A, SUBQ_A.B, SUBQ_A.C, SUBQ_A.ROWID) ELSE SUBQ_A.C END) AS SUM, GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A
+
+    this.synchronized({
+
+      try {
+        if(lensList.nonEmpty){
+          // is a non-deterministic query
+          // First need to get and load all the tables for
+          metaDataStore.execute(sel)
+        }
+        else if(isMetaDataQuery){
+          // is a query on the backend
+          metaDataStore.execute(sel)
+        }
+        else if(cantLoad){
+          // can't load one or more table so attempt to perform backend query
+          metaDataStore.execute(sel)
+        }
+        else {
+          /*
+                  def rowUDF(model: mimir.models.Model) = udf((r: Row) => {
+                    val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
+                    val A: Int = r.get(0).asInstanceOf[Int]
+                    val B: Int = r.get(1).asInstanceOf[Int]
+                    val C: Int = r.get(2).asInstanceOf[Int]
+                    val rowID = r.get(3)
+                    val res = m.classify(RowIdPrimitive(rowID.toString),Seq[PrimitiveValue](IntPrimitive(A),IntPrimitive(B),NullPrimitive()))
+
+                    r.get(0).asInstanceOf[Int] + r.get(1).asInstanceOf[Int]
+                  })
+                  val mod = db.models.get("TEST21:SPARK:C")
+
+                  val df1 = spark.sqlContext.table("R").select(
+                    col("A"),
+                    col("B"),
+                    //when(col("C").isNull, myUDF(col("B"))).otherwise(col("C")),
+                    when(col("C").isNull, rowUDF(mod)(struct(col("A"), col("B"), col("C"), col("ROWID")))).otherwise(col("C")).alias("C"),
+                    col("ROWID")).agg(sum("C"))
+
+                  df1.show()
+          */
+
+          // regular spark query with tables loaded
+          /*
+          val test: ((Any,Any) => Int) = {(i,j) => j.asInstanceOf[Int]+i.asInstanceOf[Int]}
+          val testUDF = org.apache.spark.sql.functions.udf(test)
+          df.withColumn("D",testUDF(org.apache.spark.sql.functions.lit(100),df("C"))).show()
+          */
+          val parser = new MimirJSqlParser(new java.io.StringReader(sel.replace(", GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM","")))
+          val stmt: net.sf.jsqlparser.statement.Statement = parser.Statement()
+          stmt match {
+            case s:  net.sf.jsqlparser.statement.select.Select  =>
+              execute(db.sql.convert(s))
+            //      case expl: Explain    => handleExplain(expl)
+            //      case pragma: Pragma   => handlePragma(pragma)
+            //      case analyze: Analyze => handleAnalyze(analyze)
+            case _                => throw new SQLException("This can not currently be processed by JDBCUtils.getTablesFromOperator")
+          }
+        }
+      } catch {
+        case e: SQLException => println(e.toString+"during\n"+sel)
+          throw new SQLException("Error in "+sel, e)
+      }
+
+    })
   }
   def execute(sel: String, args: Seq[PrimitiveValue]): ResultSet =
   {
@@ -218,7 +261,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           sqlStr = sqlStr.replaceFirst("?",getArg(arg))
           ""
         })
-       spark.sql(fixUpdateSqlForSpark(sqlStr))
+        spark.sql(fixUpdateSqlForSpark(sqlStr))
       })
     })
   }
@@ -283,15 +326,15 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def getArg(arg: PrimitiveValue) : String = {
     arg match {
-            case IntPrimitive(i)      => i.toString()
-            case FloatPrimitive(f)    => f.toString()
-            case StringPrimitive(s)   => s"'$s'"
-            case d:DatePrimitive      => s"'$d.asString'"
-            case BoolPrimitive(true)  => 1.toString()
-            case BoolPrimitive(false) => 0.toString()
-            case RowIdPrimitive(r)    => r.toString()
-            case NullPrimitive()      => "NULL"
-          }
+      case IntPrimitive(i)      => i.toString()
+      case FloatPrimitive(f)    => f.toString()
+      case StringPrimitive(s)   => s"'$s'"
+      case d:DatePrimitive      => s"'$d.asString'"
+      case BoolPrimitive(true)  => 1.toString()
+      case BoolPrimitive(false) => 0.toString()
+      case RowIdPrimitive(r)    => r.toString()
+      case NullPrimitive()      => "NULL"
+    }
   }
 
   def isView(name: String, table: String): Boolean = {
@@ -345,21 +388,21 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   def canHandleVGTerms(): Boolean = inliningAvailable
 
   def specializeQuery(q: Operator): Operator = {
-//    if( inliningAvailable )
-     if( true) {
-       val ret = VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, db))
-       val test = OperatorToDF(ret)
-       ret
-     }
-     else
+    //    if( inliningAvailable )
+    if( true) {
+      val ret = VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, db))
+//      val test = OperatorToDF(ret)
+      ret
+    }
+    else
       q
   }
 
   def specializeQuery(q: Operator,d: Database): Operator = {
     if( inliningAvailable ) {
       val ret = VGTermFunctions.specialize(mimir.sql.sqlite.SpecializeForSQLite(q, d))
-      val test = OperatorToDF(ret)
-      test.show()
+//      val test = OperatorToDF(ret)
+//      test.show()
       ret
     }
     else
@@ -431,20 +474,20 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           }
         })
         if(gbCols.isEmpty) { // no groupBY
-//          OperatorToDF(src).agg(aggList.head,aggList: _*)
+          //          OperatorToDF(src).agg(aggList.head,aggList: _*)
           OperatorToDF(src).agg(aggList.head)
         }
         else
           ???
-          //OperatorToDF(src).groupBy().agg(sum("A") as "A")
+        //OperatorToDF(src).groupBy().agg(sum("A") as "A")
       }
-/*      case AllTarget() => { // I assume SELECT *
-        ???
-      }
-      case ProjectTarget(cols) => {
-        ???
-      }
-*/
+      /*      case AllTarget() => { // I assume SELECT *
+              ???
+            }
+            case ProjectTarget(cols) => {
+              ???
+            }
+      */
       case Select(cond: Expression, src: Operator) => { // WHERE clause
         val c: Column = ExpressionToSparkColumn(cond)
         OperatorToDF(src).where(c)
@@ -491,9 +534,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         val model: mimir.models.Model = db.models.get(params(0).toString.replace("\'", ""))
         val idx: Int = (params(1).asInstanceOf[IntPrimitive]).asInt
         val cols: Seq[Expression] = params.slice(3, params.size) // strips away mimir_rowID
-        val columns: Seq[Column] = cols.map((c) => {
-          ExpressionToSparkColumn(c)
-        })
+      val columns: Seq[Column] = cols.map((c) => {
+        ExpressionToSparkColumn(c)
+      })
         mimir.sql.sparksql.VGTermFunctions.rowUDF(model)(struct(columns: _*))
 
       case IsNullExpression(child: Expression) => ExpressionToSparkColumn(child).isNull
@@ -505,13 +548,17 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           case _ => ??? // just call on the opposite
         }
       }
-        // base case items
-      case Var(c) => col(c)
+      // base case items
+      case Var(c) =>
+        if(c.toString.equals("MIMIR_ROWID"))
+          col("ROWID")
+        else
+          col(c)
       case IntPrimitive(i) => lit(i)
       case FloatPrimitive(i) => lit(i)
       case StringPrimitive(s) => lit(s)
       case BoolPrimitive(b) => lit(b)
-        // unknown
+      // unknown
       case _ => ???
     }
   }

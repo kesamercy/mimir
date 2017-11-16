@@ -73,7 +73,8 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
 //      })
       //      val res3: ResultIterator = query("SELECT * FROM R , CITYRAW")
       //      val res4: ResultIterator = query("SELECT * FROM CITYRAW")
-/*
+
+      /*
       val oper1 = convert("SELECT * FROM R")
       val df1: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper1)
       df1.show()
@@ -101,12 +102,14 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       val oper5 = convert("SELECT SUM(A) FROM R")
       val df5: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper5)
       df5.show()
-*/
+
       val oper6 = convert("SELECT A + 5 FROM R")
       val df6: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper6)
       df6.show()
+*/
+      query("SELECT A + 5 FROM R"){output.print(_)}
 
-      val lensName = "TEST22"
+      val lensName = "TEST23"
 //      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
       query(s"SELECT SUM(C) FROM $lensName"){output.print(_)}
 

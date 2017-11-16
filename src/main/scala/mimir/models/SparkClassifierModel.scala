@@ -116,9 +116,9 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
                     query).project()
             , db))
      } else {
-       val t: Seq[PrimitiveValue] = Seq[PrimitiveValue](rowid,rowValueHints(0),rowValueHints(1),NullPrimitive())
+       val t: Seq[PrimitiveValue] = Seq[PrimitiveValue](rowValueHints(0),rowValueHints(1),NullPrimitive())
        val row:List[Seq[PrimitiveValue]] = List(t)
-       val tar = Seq(("rowid", TString()), ("A", TFloat()), ("B", TFloat()), ("C", TFloat()))
+       val tar = Seq(("A", TFloat()), ("B", TFloat()), ("C", TFloat()))
        val m = learner.get
        val c = sparkMLInstance.applyModel(m, tar, row)
        sparkMLInstance.extractPredictions(learner.get, c)

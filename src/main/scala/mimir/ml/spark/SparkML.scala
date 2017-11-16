@@ -94,9 +94,9 @@ abstract class SparkML {
     val d: RDD[Row] = getSparkSession().parallelize(t)
     val df: DataFrame = sqlContext.createDataFrame(d, str)
     df.show()
-//    val mdf: DataFrame = modDF(df)
-//    mdf.show()
-//    mdf.printSchema()
+    val mdf: DataFrame = modDF(df)
+    mdf.show()
+    mdf.printSchema()
     model.transform(df)
   }
   
