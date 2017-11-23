@@ -53,7 +53,9 @@ object SparkConnection {
         //spark.sql(s"CREATE TABLE IF NOT EXISTS $tableName as SELECT * FROM $tempTableName")
 
       case dataframeSparkConnection(dataFrame) => "dataframe"
-      case csvSparkConnection(csv) => "csv"
+      case csvSparkConnection(csvDirectory) =>
+        val df = spark.read.format("csv").option("header", "true").load(s"${csvDirectory}/${tableName.toLowerCase()}.csv")
+        df.createOrReplaceTempView(tableName)
 //      case rddSparkConnection() => "rdd"
     }
   }
@@ -70,5 +72,5 @@ object SparkConnection {
 
 case class sqliteSparkConnection(sqliteBackend: JDBCBackend) extends SparkConnection
 case class dataframeSparkConnection(dataFrame: DataFrame) extends SparkConnection
-case class csvSparkConnection(csv: File) extends SparkConnection
+case class csvSparkConnection(csvDirectory: String) extends SparkConnection
 //case class rddSparkConnection(RDD) extends SparkConnection
