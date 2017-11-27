@@ -47,14 +47,14 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
 
   def getObject[T](colName: String,getAs: Class[T]): T = getObject[T](findColumn(colName),getAs)
   def getObject[T](columnIndex: Int,getAs: Class[T]): T = {
-    if(row >= 0 && row < lastRow){
-      val ret = rows(row.toInt).get(columnIndex-1)
-      if(ret == null)
-        wasLastGetNull = true
-      ret.asInstanceOf[T]
-    }
-    else
-      null.asInstanceOf[T]
+      if (row >= 0 && row < lastRow) {
+        val ret = rows(row.toInt).get(columnIndex - 1)
+        if (ret == null)
+          wasLastGetNull = true
+        ret.asInstanceOf[T]
+      }
+      else
+        null.asInstanceOf[T]
       //throw new IndexOutOfBoundsException(s"Row: $row is out of the range of 0 - ${sparkDataFrame.count()}")
   }
   def getObject(x$1: String,x$2: java.util.Map[String,Class[_]]): Object = throw new UnsupportedOperationException(
@@ -83,9 +83,13 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   def getShort(columnIndex: Int): Short =
     java.lang.Short.parseShort(getString(columnIndex))
 
-  def getInt(columnIndex: Int): Int =
-    java.lang.Integer.parseInt(getString(columnIndex))
-
+  def getInt(columnIndex: Int): Int = {
+    try {
+      java.lang.Integer.parseInt(getString(columnIndex))
+    } catch {
+      case e: NumberFormatException => 0
+    }
+  }
   def getLong(columnIndex: Int): Long =
     try{
       java.lang.Long.parseLong(getString(columnIndex))
@@ -105,8 +109,7 @@ class SparkResultSet(sparkDataFrame: DataFrame) extends ResultSet {
   def getDouble(columnIndex: Int): Double =
     try {
       java.lang.Double.parseDouble(getString(columnIndex))
-    }
-  catch {
+    } catch {
     case e:NumberFormatException => 0.0d
   }
 

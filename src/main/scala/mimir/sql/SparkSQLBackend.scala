@@ -121,7 +121,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       else {
         // regular spark query with tables loaded
         val df: DataFrame = OperatorToDF(oper)
-        df.show()
+//        df.show()
         new SparkResultSet(df)
       }
     } catch {
@@ -183,7 +183,9 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           val testUDF = org.apache.spark.sql.functions.udf(test)
           df.withColumn("D",testUDF(org.apache.spark.sql.functions.lit(100),df("C"))).show()
           */
-          val parser = new MimirJSqlParser(new java.io.StringReader(sel.replace(", GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM","")))
+          //.replace(", GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM","")
+          val newsel = sel.replace(" IS NOT NULL","").replace("(1 = 1)","1").replace("(0 = 0)","0")
+          val parser = new MimirJSqlParser(new java.io.StringReader(newsel))
           val stmt: net.sf.jsqlparser.statement.Statement = parser.Statement()
           stmt match {
             case s:  net.sf.jsqlparser.statement.select.Select  =>
@@ -475,7 +477,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         })
         if(gbCols.isEmpty) { // no groupBY
           //          OperatorToDF(src).agg(aggList.head,aggList: _*)
-          OperatorToDF(src).agg(aggList.head)
+          OperatorToDF(src).agg(aggList.head,aggList.tail: _*)
         }
         else
           ???

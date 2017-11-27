@@ -106,12 +106,21 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       val oper6 = convert("SELECT A + 5 FROM R")
       val df6: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper6)
       df6.show()
+
+      val oper7 = convert("SELECT SUM(CASE WHEN SUBQ_A.C IS NULL THEN BEST_GUESS_VGTERM('TEST23:SPARK:C', 0, SUBQ_A.MIMIR_ROWID, SUBQ_A.A, SUBQ_A.B, SUBQ_A.C, SUBQ_A.ROWID) ELSE SUBQ_A.C END) AS SUM, GROUP_AND(SUBQ_A.C) AS MIMIR_COL_DET_SUM, GROUP_OR(1) AS MIMIR_ROW_DET FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A")
+      val df7: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper7)
+      df7.show()
+
+      val oper71 = convert("SELECT CASE WHEN SUBQ_A.C IS NULL THEN BEST_GUESS_VGTERM('TEST23:SPARK:C', 0, SUBQ_A.MIMIR_ROWID, SUBQ_A.A, SUBQ_A.B, SUBQ_A.C, SUBQ_A.ROWID) ELSE SUBQ_A.C END AS SUM FROM (SELECT R.A AS A, R.B AS B, R.C AS C, R.ROWID AS ROWID, R.ROWID AS MIMIR_ROWID FROM R AS R) SUBQ_A")
+      val df71: DataFrame = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(oper71)
+      df71.show()
 */
+
       query("SELECT A + 5 FROM R"){output.print(_)}
 
       val lensName = "TEST23"
 //      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
-      query(s"SELECT SUM(C) FROM $lensName"){output.print(_)}
+//      query(s"SELECT SUM(C) FROM $lensName"){output.print(_)}
 
 /*
       val oper6 = convert("SELECT BEST_GUESS(A) FROM R")
@@ -119,7 +128,7 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       df6.show()
 */
 
-//      query("SELECT SUM(C) FROM TEST21"){output.print(_)}
+      query("SELECT SUM(C) FROM TEST21"){output.print(_)}
 //      while(true){}
 
       println("done")
