@@ -50,12 +50,17 @@ object Mimir extends LazyLogging {
     ExperimentalOptions.enable(conf.experimental())
 
     // Set up the database connection(s)
-    db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
+    conf.backendType.get match {
+      case Some("sqlite") => db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
+      case Some("spark") => db = new Database(new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", conf.dbname()))))
+      case None => db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
+    }
     if(!conf.quiet()){
       output.print("Connecting to " + conf.backend() + "://" + conf.dbname() + "...")
     }
     db.backend.open()
-
+    if(conf.backendType.get.get.equals("spark"))
+      db.backend.setDB(db)
     db.initializeDBForMimir();
 
     // Check for one-off commands
@@ -71,7 +76,7 @@ object Mimir extends LazyLogging {
       }))
 
       if(!ExperimentalOptions.isEnabled("NO-INLINE-VG")){
-        db.backend.asInstanceOf[JDBCBackend].enableInlining(db)
+        db.backend.enableInlining(db)
       }
 
       if(conf.file.get == None || conf.file() == "-"){
@@ -302,4 +307,6 @@ class MimirConfig(arguments: Seq[String]) extends ScallopConf(arguments)
   val quiet  = toggle("quiet", default = Some(false))
   val file = trailArg[String](required = false)
   val experimental = opt[List[String]]("X", default = Some(List[String]()))
+  val backendType = opt[String]("dbType", descr = "Which backend database to use? sqlite or spark",
+    default = Some("sqlite"))
 }
