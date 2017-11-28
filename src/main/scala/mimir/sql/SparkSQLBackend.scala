@@ -552,8 +552,8 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       }
       // base case items
       case Var(c) =>
-        if(c.toString.equals("MIMIR_ROWID"))
-          col("ROWID")
+        if(c.toString.contains("ROWID")) // c.toString.equals("MIMIR_ROWID") ||
+          monotonically_increasing_id()
         else
           col(c)
       case IntPrimitive(i) => lit(i)
@@ -564,13 +564,6 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       case _ => ???
     }
   }
-
-  def en(operation: Enumeration) = {
-    operation match {
-      case Arith.And =>
-    }
-  }
-
 
   // for determining which operator to use, there is not direct conversion I know of so this is the hack for that
   def CombineEnum(operation: Any, lhs: Column, rhs: Column): Column = {

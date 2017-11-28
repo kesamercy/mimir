@@ -7,7 +7,7 @@ import com.typesafe.scalalogging.slf4j.Logger
 
 import mimir.algebra._
 import mimir.ctables._
-import mimir.util.{RandUtils,TextUtils,TimeUtils}
+import mimir.util.{RandUtils,TextUtils}
 import mimir.{Analysis, Database}
 
 import mimir.models._
@@ -56,11 +56,11 @@ object SparkClassifierModel
 @SerialVersionUID(1001L)
 class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   extends Model(name)
-  with NeedsReconnectToDatabase
-  with SourcedFeedback
-  with ModelCache
+    with NeedsReconnectToDatabase
+    with SourcedFeedback
+    with ModelCache
 {
-  val colIdx:Int = query.columnNames.indexOf(colName) // the target column for the classifier
+  val colIdx:Int = query.columnNames.indexOf(colName)
   val classifyUpFrontAndCache = true
   var classifyAllPredictions:Option[Map[String, Seq[(String, Double)]]] = None
   var learner: Option[SparkML.SparkModel] = None
@@ -76,17 +76,14 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   def getFeedbackKey(idx: Int, args: Seq[PrimitiveValue] ) : String = args(0).asString
 
   /**
-   * When the model is created, learn associations from the existing data.
-   */
+    * When the model is created, learn associations from the existing data.
+    */
   def train(db:Database)
   {
     this.db = db
     sparkMLInstanceType = guessSparkModelType(guessInputType)
-    TimeUtils.monitor(s"Train $name.$colName", WekaModel.logger.info(_)){
-//      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Sort(Seq(SortColumn(Function("random", Seq()), true)), Project(Seq(ProjectArg(colName, Var(colName))), query)))
-      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg("A", Var("A")),ProjectArg("B", Var("B")),ProjectArg("C", Var("C"))), query)) // just remove rowid
+      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg(colName, Var(colName))), query))
       learner = Some(sparkMLModelGenerator(ModelParams(trainingQuery, db, colName)))
-    }
   }
 
   def guessSparkModelType(t:Type) : String = {
@@ -107,31 +104,36 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     hasFeedback(idx, args)
 
 
-  def classify(rowid: RowIdPrimitive, rowValueHints: Seq[PrimitiveValue]): Seq[(String,Double)] = {
-     {if(rowValueHints.isEmpty){
-       sparkMLInstance.extractPredictions(learner.get, sparkMLInstance.applyModelDB(learner.get,
-
-                  Select(
-                    Comparison(Cmp.Eq, RowIdVar(), rowid),
-                    query).project()
-            , db))
-     } else {
-       val t: Seq[PrimitiveValue] = Seq[PrimitiveValue](rowValueHints(0),rowValueHints(1),NullPrimitive())
-       val row:List[Seq[PrimitiveValue]] = List(t)
-       val tar = Seq(("A", TFloat()), ("B", TFloat()), ("C", TFloat()))
-       val m = learner.get
-       val c = sparkMLInstance.applyModel(m, tar, row)
-       sparkMLInstance.extractPredictions(learner.get, c)
-     }} match {
-         case Seq() => Seq()
-         case x => x.unzip._2
-       }
+  private def classify(rowid: RowIdPrimitive, rowValueHints: Seq[PrimitiveValue]): Seq[(String,Double)] = {
+    {if(rowValueHints.isEmpty){
+      sparkMLInstance.extractPredictions(learner.get, sparkMLInstance.applyModelDB(learner.get,
+        Select(
+          Comparison(Cmp.Eq, RowIdVar(), rowid),
+          query).project((Seq(colName) ++ query.columnNames.filterNot(_.equals(colName))): _*)
+        , db))
+    } else {
+      sparkMLInstance.extractPredictions(learner.get,
+        sparkMLInstance.applyModel(learner.get,  ("rowid", TString()) +: (db.typechecker.schemaOf(query).foldLeft((None:Option[(String,Type)],Seq[(String,Type)]()))((init, col) => {
+          col._1 match {
+            case `colName` => (Some(col), init._2)
+            case _ => (init._1, init._2 :+ col)
+          }
+        }) match {
+          case (Some(col:(String,Type)), otherCols:Seq[(String,Type)]) =>  col +: otherCols
+          case x => throw new Exception("There is a column missing from the query: " + colName)
+        }), List(List(rowid, rowValueHints(colIdx)))))
+    }} match {
+      case Seq() => Seq()
+      case x => x.unzip._2
+    }
   }
 
   def classifyAll() : Unit = {
     val classifier = learner.get
-    val classifyAllQuery = Project(Seq(ProjectArg(colName, Var(colName))), query)
+    val classifyAllQuery = query.project((Seq(colName) ++ query.columnNames.filterNot(_.equals(colName))): _*)//Project(Seq(ProjectArg(colName, Var(colName))), query)
     val predictions = sparkMLInstance.applyModelDB(classifier, classifyAllQuery, db)
+    //val sqlContext = MultiClassClassification.getSparkSqlContext()
+    //import sqlContext.implicits._
 
     //method 1: window, rank, and drop
     /*import org.apache.spark.sql.functions.row_number

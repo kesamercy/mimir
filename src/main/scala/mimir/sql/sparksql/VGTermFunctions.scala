@@ -81,7 +81,7 @@ object VGTermFunctions
     val A: Long = r.get(0).asInstanceOf[Long]
     val B: Long = r.get(1).asInstanceOf[Long]
 //    val C: Int = r.get(2).asInstanceOf[Int]
-    val rowID = r.get(3).toString
+//    val rowID = r.get(3).toString
 //    val res = m.classify(RowIdPrimitive(rowID),Seq[PrimitiveValue](FloatPrimitive(A),FloatPrimitive(B),NullPrimitive()))
     val y: Long = 10
     y

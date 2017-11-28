@@ -45,7 +45,7 @@ object SparkConnection {
         val numberPartitions: Int = 4
         val tempTableName = tableName + "_TEMP"
 
-        val df = spark.read.jdbc(sparkConnectionUrl,s"(SELECT *, ROWID FROM $tableName)",sparkConnectionProperties)//.repartition(numberPartitions)
+        val df = spark.read.jdbc(sparkConnectionUrl,s"(SELECT * FROM $tableName)",sparkConnectionProperties)//.repartition(numberPartitions)
 //        val level = StorageLevel.MEMORY_ONLY
 //        df.persist(level)
 
