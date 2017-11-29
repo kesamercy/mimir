@@ -18,6 +18,7 @@ import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import mimir.models.{Model, SimpleSparkClassifierModel}
 import mimir.parser.MimirJSqlParser
+import org.apache.spark.ml.linalg.Vectors
 
 class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBackend = new JDBCBackend("sqlite", "databases/mimirLensDB.db"))
   extends Backend
@@ -55,6 +56,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       assert(metaDataStore != null)
 
       SparkML.sc = Some(spark.sparkContext)
+      SparkML.sparkSession = Some(spark)
 
       // register udf's for spark
       SparkSQLCompat.registerFunctions(spark)
@@ -184,9 +186,17 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
           df.withColumn("D",testUDF(org.apache.spark.sql.functions.lit(100),df("C"))).show()
           */
           //.replace(", GROUP_AND(SUBQ_A.C IS NOT NULL) AS MIMIR_COL_DET_SUM, GROUP_OR((1 = 1)) AS MIMIR_ROW_DET FROM","")
-          val newsel = sel.replace(" IS NOT NULL","").replace("(1 = 1)","1").replace("(0 = 0)","0")
-          val parser = new MimirJSqlParser(new java.io.StringReader(newsel))
-          val stmt: net.sf.jsqlparser.statement.Statement = parser.Statement()
+          var stmt: net.sf.jsqlparser.statement.Statement = null
+          try {
+            val parser = new MimirJSqlParser(new java.io.StringReader(sel))
+            stmt = parser.Statement()
+          }
+          catch {
+            case _ =>
+              val newsel = sel.replace(" IS NOT NULL","").replace("(1 = 1)","1").replace("(0 = 0)","0")
+              val parser = new MimirJSqlParser(new java.io.StringReader(newsel))
+              stmt = parser.Statement()
+          }
           stmt match {
             case s:  net.sf.jsqlparser.statement.select.Select  =>
               execute(db.sql.convert(s))
@@ -462,6 +472,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         val df = OperatorToDF(src)
         val retC: Seq[Column] = cols.map((c) => {
           ExpressionToSparkColumn(c.expression).alias(c.name)
+
         })
         df.select(retC: _*) // Needs to handle functions
       }
@@ -535,7 +546,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       case Function("BEST_GUESS_VGTERM", params: Seq[Expression]) => // best guess vgterm for spark models
         val model: mimir.models.Model = db.models.get(params(0).toString.replace("\'", ""))
         val idx: Int = (params(1).asInstanceOf[IntPrimitive]).asInt
-        val cols: Seq[Expression] = params.slice(3, params.size) // strips away mimir_rowID
+        val cols: Seq[Expression] = params.slice(3, params.size) // 2 is mimir_rowid
       val columns: Seq[Column] = cols.map((c) => {
         ExpressionToSparkColumn(c)
       })
@@ -551,8 +562,11 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
         }
       }
       // base case items
+      case Vector(cols) =>
+        struct(cols.map(col(_)): _*)
       case Var(c) =>
         if(c.toString.contains("ROWID")) // c.toString.equals("MIMIR_ROWID") ||
+          //lit(0)
           monotonically_increasing_id()
         else
           col(c)

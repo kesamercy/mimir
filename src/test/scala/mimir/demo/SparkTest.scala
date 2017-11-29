@@ -117,10 +117,12 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
 */
 
 //      query("SELECT A + 5 FROM R"){output.print(_)}
+      query("SELECT * FROM R"){output.print(_)}
 
-      val lensName = "TEST28"
+      val lensName = "TEST38"
 //      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
-      query(s"SELECT * FROM $lensName"){output.print(_)}
+      query(s"SELECT sum(c) FROM $lensName"){output.print(_)}
+//      query(s"SELECT C FROM $lensName"){output.print(_)}
 
 /*
       val oper6 = convert("SELECT BEST_GUESS(A) FROM R")

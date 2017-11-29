@@ -139,6 +139,9 @@ class Typechecker(
 			case IsNullExpression(child) =>
 				recur(child);
 				TBool()
+			case IsNotNullExpression(child) =>
+				recur(child);
+				TBool()
 			case RowIdVar() => TRowId()
 			case VGTerm(model, idx, args, hints) => 
 				models match {

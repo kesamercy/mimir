@@ -3,17 +3,21 @@ package mimir.models
 import java.io.File
 import java.sql.SQLException
 import java.util
-import com.typesafe.scalalogging.slf4j.Logger
 
+import com.typesafe.scalalogging.slf4j.Logger
 import mimir.algebra._
 import mimir.ctables._
-import mimir.util.{RandUtils,TextUtils}
+import mimir.util.{RandUtils, TextUtils}
 import mimir.{Analysis, Database}
-
 import mimir.models._
-
-import mimir.ml.spark.{SparkML, Classification, Regression}
-import mimir.ml.spark.SparkML.{SparkModelGeneratorParams => ModelParams }
+import mimir.ml.spark.{Classification, Regression, SparkML}
+import mimir.ml.spark.SparkML.{SparkModelGeneratorParams => ModelParams}
+import mimir.sql.SparkSQLBackend
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.{NaiveBayes, NaiveBayesModel}
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import scala.util._
 import org.apache.spark.sql.types.StringType
@@ -24,6 +28,7 @@ object SparkClassifierModel
   val TRAINING_LIMIT = 10000
   val TOKEN_LIMIT = 100
   val availableSparkModels = Map("Classification" -> (Classification, Classification.NaiveBayesMulticlassModel()), "Regression" -> (Regression, Regression.GeneralizedLinearRegressorModel()))
+  val trainedModel = null
 
   def train(db: Database, name: String, cols: Seq[String], query:Operator): Map[String,(Model,Int,Seq[Expression])] =
   {
@@ -65,6 +70,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   var classifyAllPredictions:Option[Map[String, Seq[(String, Double)]]] = None
   var learner: Option[SparkML.SparkModel] = None
 
+  var trainedNBC: NaiveBayesModel = null
   var sparkMLInstanceType = "Classification"
 
   @transient var db: Database = null
@@ -82,8 +88,37 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   {
     this.db = db
     sparkMLInstanceType = guessSparkModelType(guessInputType)
-      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg(colName, Var(colName))), query))
+      val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(query.columnNames.toList.map((col) => mimir.algebra.ProjectArg(col,mimir.algebra.Var(col))),Select(Not(IsNullExpression(Var(colName))),query)))
+      //val trainingQuery = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(Seq(ProjectArg(colName, Var(colName))), query))
+
+      // colName is the target col
+      val targetLabel = ProjectArg(colName,Var(colName))
+      val features: Seq[String] = query.columnNames.filter(!_.equals(colName))
+
+      val naiveBayesProject: Seq[ProjectArg] = Seq[ProjectArg](targetLabel,ProjectArg("features",Vector(features)))
+
+      val tq = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(naiveBayesProject,Select(Not(IsNullExpression(Var(colName))),query)))
+      val assembler = new VectorAssembler().setInputCols(features.toArray).setOutputCol("features")
+      val df = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(trainingQuery)
+      val df2 = assembler.transform(df.na.drop())
+
+      trainedNBC = new NaiveBayes().fit(df2.select(org.apache.spark.sql.functions.col(colName).as("label"),org.apache.spark.sql.functions.col("features")))
       learner = Some(sparkMLModelGenerator(ModelParams(trainingQuery, db, colName)))
+  }
+
+  def predict(r: Row): Any = {
+    val rowList: java.util.List[Row] = new java.util.ArrayList[Row]()
+    rowList.add(r)
+    val spark: SparkSession = SparkML.sparkSession.get
+    val df: DataFrame = spark.createDataFrame(rowList,r.schema)
+    df.show()
+    val assembler = new VectorAssembler().setInputCols(r.schema.map(_.name).filter(!_.contains(colName)).toArray).setOutputCol("features")
+    val df1 = assembler.transform(df)
+    df1.show()
+    val predictions: DataFrame = trainedNBC.transform(df1.select(org.apache.spark.sql.functions.col("features")))
+//    val predictions = trainedNBC.transform(df.select(r.schema.map(_.name).filter(!_.equals(colName)).map(org.apache.spark.sql.functions.col(_)): _*))
+    val res: Any = predictions.select("prediction").collectAsList().get(0)(0)
+    res
   }
 
   def guessSparkModelType(t:Type) : String = {
@@ -154,6 +189,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     val predictionMap = sparkMLInstance.extractPredictions(classifier, predictions).groupBy(_._1).map { case (k,v) => (k,v.map(_._2))}
     classifyAllPredictions = Some(predictionMap)
 
+    // delete this
     predictionMap.map(mapEntry => {
       setCache(0,Seq(RowIdPrimitive(mapEntry._1)), null, classToPrimitive( mapEntry._2(0)._1))
     })

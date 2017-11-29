@@ -72,6 +72,7 @@ class SimplifyExpressions(interpreter: Eval, functionRegistry: FunctionRegistry)
       case IsNullExpression(NullPrimitive()) => BoolPrimitive(true)
       case IsNullExpression(_:PrimitiveValue) => BoolPrimitive(false)
       case IsNullExpression(_) => return originalExpression
+      case IsNotNullExpression(_) => return originalExpression
 
       //////////////////// Function-Likes ////////////////////
       // If all args are present, and we have a registry, try to evaluate the function

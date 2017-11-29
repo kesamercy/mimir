@@ -254,6 +254,11 @@ case class Var(name: String) extends LeafExpression {
   override def toString = name;
 }
 
+@SerialVersionUID(100L)
+case class Vector(payload: Seq[String]) extends LeafExpression {
+  override def toString = payload.toString
+}
+
 /**
  * Representation of a Provenance Token / Row Identifier.  RowId has a special
  * place in the expression syntax, because unlike classical SQL implicit ROWID

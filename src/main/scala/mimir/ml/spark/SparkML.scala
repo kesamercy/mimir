@@ -2,11 +2,10 @@ package mimir.ml.spark
 
 import mimir.algebra._
 import mimir.Database
-
-import org.apache.spark.sql.{SQLContext, DataFrame, Row}
-import org.apache.spark.{SparkContext, SparkConf}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext, SparkSession}
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.ml.PipelineModel
-import org.apache.spark.sql.types.{DataType, DoubleType, LongType, FloatType, BooleanType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DoubleType, FloatType, IntegerType, LongType, StringType, StructField, StructType}
 import org.apache.spark.ml.feature.Imputer
 import mimir.util.ExperimentalOptions
 
@@ -16,6 +15,7 @@ object SparkML {
   type SparkModelGenerator = SparkModelGeneratorParams => PipelineModel
   var sc: Option[SparkContext] = None
   var sqlCtx : Option[SQLContext] = None
+  var sparkSession: Option[SparkSession] = None
 }
 
 abstract class SparkML {
@@ -90,6 +90,7 @@ abstract class SparkML {
     applyModel(model, ("rowid", TString()) +:db.bestGuessSchema(query), data, valuePreparer, sparkTyper, dfTransformer)
   }
 
+  // df transformer to none
   def applyModel( model : PipelineModel, cols:Seq[(String, Type)], testData : List[Seq[PrimitiveValue]], valuePreparer:ValuePreparer = prepareValueApply, sparkTyper:Type => DataType = getSparkType, dfTransformer:Option[DataFrameTransformer] = Some(nullValueReplacement)): DataFrame = {
     val sqlContext = getSparkSqlContext()
     import sqlContext.implicits._

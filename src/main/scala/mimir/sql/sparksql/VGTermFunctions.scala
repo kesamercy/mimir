@@ -16,7 +16,7 @@ import org.apache.spark.sql.types.{StructField, StructType}
 class BestGuessVGTerm(db: Database) {
   
   def bestGuessVGTerm(modelName : String, idx: Int, args:Seq[Any]) : Int = {
-    /*
+
     val value_mimir : ( Int,Type) => PrimitiveValue = (idx, t) => {
       t match {
         case TInt()    => IntPrimitive(args(idx).asInstanceOf[Long])
@@ -51,7 +51,7 @@ class BestGuessVGTerm(db: Database) {
       case RowIdPrimitive(r)    => r
       case NullPrimitive()      => null
     }
-    */
+
     10
   }
 }
@@ -74,6 +74,17 @@ object VGTermFunctions
 
   def rowUDF(model: mimir.models.Model) = org.apache.spark.sql.functions.udf((r: Row) => {
     val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
+
+    val guess = m.predict(r)
+
+/*
+    val targetCol: String = model.name.split(":")(2).toUpperCase()
+    val hints: Seq[PrimitiveValue] = r.toSeq.map((col) => {
+
+    })
+    val guess = m.predict(r)
+/*
+    //val m: SimpleSparkClassifierModel = model.asInstanceOf[SimpleSparkClassifierModel]
     val schema: List[StructField] = r.schema.toList
     val a = schema(0)
     val b = schema(1)
@@ -85,6 +96,19 @@ object VGTermFunctions
 //    val res = m.classify(RowIdPrimitive(rowID),Seq[PrimitiveValue](FloatPrimitive(A),FloatPrimitive(B),NullPrimitive()))
     val y: Long = 10
     y
+    */
+    guess match {
+      case IntPrimitive(i)      => i
+      case FloatPrimitive(f)    => f
+      case StringPrimitive(s)   => s
+      case d:DatePrimitive      => d.asString
+      case BoolPrimitive(true)  => 1
+      case BoolPrimitive(false) => 0
+      case RowIdPrimitive(r)    => r
+      case NullPrimitive()      => null
+    }
+*/
+    guess.asInstanceOf[Double]
   })
 
   def specialize(e: Expression): Expression = {
