@@ -12,7 +12,7 @@ import org.apache.spark.ml.Model
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField}
+import org.apache.spark.sql.types._
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions._
@@ -331,6 +331,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
   def sparkTypesToMimirTypes(dataType: DataType): Type = {
     dataType match {
       case IntegerType => TInt()
+      case DoubleType => TFloat()
       case LongType => TFloat()
       case _ => TString()
     }
