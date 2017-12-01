@@ -49,18 +49,6 @@ abstract class SparkML {
     }
   }
 
-  def initSparkIfNotAlready(): Unit = {
-    SparkML.sparkSession match {
-      case None => {
-        val conf = new SparkConf().setAppName("SparkMLSparkSession").setMaster("local[*]")
-        SparkML.sparkSession = Option(SparkSession
-          .builder()
-          .config(conf)
-          .getOrCreate())
-      }
-      case Some(_) => Unit
-    }
-  }
 
   type ValuePreparer = (PrimitiveValue, Type) => Any
 

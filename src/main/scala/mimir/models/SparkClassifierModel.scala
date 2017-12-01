@@ -13,6 +13,7 @@ import mimir.models._
 import mimir.ml.spark.{Classification, Regression, SparkML}
 import mimir.ml.spark.SparkML.{SparkModelGeneratorParams => ModelParams}
 import mimir.sql.SparkSQLBackend
+import org.apache.spark.SparkConf
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.classification.{NaiveBayes, NaiveBayesModel}
 import org.apache.spark.ml.feature.VectorAssembler
@@ -71,6 +72,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   var learner: Option[SparkML.SparkModel] = None
 
   var trainedNBC: NaiveBayesModel = null
+  var spark: Option[SparkSession] = None
   var sparkMLInstanceType = "Classification"
 
   @transient var db: Database = null
@@ -110,7 +112,7 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     val rowList: java.util.List[Row] = new java.util.ArrayList[Row]()
     rowList.add(r)
 
-    sparkMLInstance.initSparkIfNotAlready()
+    initSparkIfNotAlready()
     val spark: SparkSession = SparkML.sparkSession.get
     val df: DataFrame = spark.createDataFrame(rowList,r.schema)
 //    df.show()
@@ -121,6 +123,19 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
 //    val predictions = trainedNBC.transform(df.select(r.schema.map(_.name).filter(!_.equals(colName)).map(org.apache.spark.sql.functions.col(_)): _*))
     val res: Any = predictions.select("prediction").collectAsList().get(0)(0)
     res
+  }
+
+  def initSparkIfNotAlready(): Unit = {
+    spark match {
+      case None => {
+        val conf = new SparkConf().setAppName("SparkMLSparkSession").setMaster("local[*]")
+        spark = Option(SparkSession
+          .builder()
+          .config(conf)
+          .getOrCreate())
+      }
+      case Some(_) => Unit
+    }
   }
 
   def guessSparkModelType(t:Type) : String = {
