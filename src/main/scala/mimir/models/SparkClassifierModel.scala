@@ -15,9 +15,12 @@ import mimir.ml.spark.SparkML.{SparkModelGeneratorParams => ModelParams}
 import mimir.sql.SparkSQLBackend
 import org.apache.spark.SparkConf
 import org.apache.spark.ml.Pipeline
-import org.apache.spark.ml.classification.{NaiveBayes, NaiveBayesModel}
+import org.apache.spark.mllib.classification.{NaiveBayes, NaiveBayesModel}
 import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import scala.util._
@@ -29,7 +32,6 @@ object SparkClassifierModel
   val TRAINING_LIMIT = 10000
   val TOKEN_LIMIT = 100
   val availableSparkModels = Map("Classification" -> (Classification, Classification.NaiveBayesMulticlassModel()), "Regression" -> (Regression, Regression.GeneralizedLinearRegressorModel()))
-  val trainedModel = null
 
   def train(db: Database, name: String, cols: Seq[String], query:Operator): Map[String,(Model,Int,Seq[Expression])] =
   {
@@ -53,9 +55,6 @@ object SparkClassifierModel
       )
     }).toMap
   }
-
-
-
 
 }
 
@@ -101,31 +100,40 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
 
       val tq = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(naiveBayesProject,Select(Not(IsNullExpression(Var(colName))),query)))
       val assembler = new VectorAssembler().setInputCols(features.toArray).setOutputCol("features")
-      val df = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(trainingQuery)
-      val df2 = assembler.transform(df.na.drop())
+      val df = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(tq)
+      //val df2 = assembler.transform(df.na.drop())
+      trainedNBC = org.apache.spark.mllib.classification.NaiveBayes.train(df.rdd.map(row => {
+        LabeledPoint(
+        row.getAs[Long](colName).toDouble,
+        org.apache.spark.mllib.linalg.Vectors.dense(row.getAs[GenericRowWithSchema]("features").toSeq.asInstanceOf[Seq[Long]].map(_.toDouble).toArray)
+      )}), lambda = 1.0, modelType = "multinomial")
 
-      trainedNBC = new NaiveBayes().fit(df2.select(org.apache.spark.sql.functions.col(colName).as("label"),org.apache.spark.sql.functions.col("features")))
+//      trainedNBC = new org.apache.spark.ml.classification.NaiveBayes().fit(df2.select(org.apache.spark.sql.functions.col(colName).as("label"),org.apache.spark.sql.functions.col("features")))
       learner = Some(sparkMLModelGenerator(ModelParams(trainingQuery, db, colName)))
   }
 
   def predict(r: Row): Any = {
+/*
     val rowList: java.util.List[Row] = new java.util.ArrayList[Row]()
     rowList.add(r)
-
     initSparkIfNotAlready()
     val spark: SparkSession = SparkML.sparkSession.get
     val df: DataFrame = spark.createDataFrame(rowList,r.schema)
-//    df.show()
+    df.show()
     val assembler = new VectorAssembler().setInputCols(r.schema.map(_.name).filter(!_.contains(colName)).toArray).setOutputCol("features")
     val df1 = assembler.transform(df)
-//    df1.show()
+    df1.show()
     val predictions: DataFrame = trainedNBC.transform(df1.select(org.apache.spark.sql.functions.col("features")))
-//    val predictions = trainedNBC.transform(df.select(r.schema.map(_.name).filter(!_.equals(colName)).map(org.apache.spark.sql.functions.col(_)): _*))
+    r.toSeq.asInstanceOf[Seq[Long]].map(_.toDouble).toArray
+    val predictions = trainedNBC.transform(df.select(r.schema.map(_.name).filter(!_.equals(colName)).map(org.apache.spark.sql.functions.col(_)): _*))
     val res: Any = predictions.select("prediction").collectAsList().get(0)(0)
-    res
+*/
+    val newSch: Seq[String] = r.schema.map(_.name).filter(!_.contains(colName))
+    trainedNBC.predict(Vectors.dense(newSch.map((c) => r.getAs[Long](c).toDouble).toArray))
   }
 
   def initSparkIfNotAlready(): Unit = {
+
     spark match {
       case None => {
         val conf = new SparkConf().setAppName("SparkMLSparkSession").setMaster("local[*]")

@@ -43,7 +43,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def open() = {
     this.synchronized({
-      val conf = new SparkConf().setAppName("MimirSparkSQLBackend")//.setMaster("local[*]")
+      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[*]")
       spark = SparkSession
         .builder()
         .config(conf)
@@ -56,7 +56,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       assert(metaDataStore != null)
 
       SparkML.sc = Some(spark.sparkContext)
-//      SparkML.sparkSession = Some(spark)
+      SparkML.sparkSession = Some(spark)
 
       // register udf's for spark
       SparkSQLCompat.registerFunctions(spark)

@@ -123,7 +123,7 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       // select * from mv1;
 
       val lensName = "TEST40"
-      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
+//      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
       query(s"SELECT sum(c) FROM $lensName"){output.print(_)}
 //      query(s"SELECT C FROM $lensName"){output.print(_)}
 
