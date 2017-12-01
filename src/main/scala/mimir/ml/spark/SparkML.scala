@@ -20,7 +20,7 @@ object SparkML {
 
 abstract class SparkML {
   def getSparkSession() : SparkContext = {
-    val conf = new SparkConf().setAppName("MultiClassClassification")//.setMaster("local[*]")
+    val conf = new SparkConf().setAppName("MultiClassClassification").setMaster("local[*]")
     if(ExperimentalOptions.isEnabled("GPROM-BACKEND")){
       sys.props.get("os.name") match {
         case Some(osname) if osname.startsWith("Mac OS X") => conf.set("spark.executorEnv.DYLD_INSERT_LIBRARIES",System.getProperty("java.home")+"/lib/libjsig.dylib")
@@ -46,6 +46,19 @@ abstract class SparkML {
         SparkML.sqlCtx.get
       }
       case Some(ctx) => ctx
+    }
+  }
+
+  def initSparkIfNotAlready(): Unit = {
+    SparkML.sparkSession match {
+      case None => {
+        val conf = new SparkConf().setAppName("SparkMLSparkSession").setMaster("local[*]")
+        SparkML.sparkSession = Option(SparkSession
+          .builder()
+          .config(conf)
+          .getOrCreate())
+      }
+      case Some(_) => Unit
     }
   }
 

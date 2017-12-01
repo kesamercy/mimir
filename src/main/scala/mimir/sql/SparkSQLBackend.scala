@@ -56,7 +56,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
       assert(metaDataStore != null)
 
       SparkML.sc = Some(spark.sparkContext)
-      SparkML.sparkSession = Some(spark)
+//      SparkML.sparkSession = Some(spark)
 
       // register udf's for spark
       SparkSQLCompat.registerFunctions(spark)

@@ -109,12 +109,14 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
   def predict(r: Row): Any = {
     val rowList: java.util.List[Row] = new java.util.ArrayList[Row]()
     rowList.add(r)
+
+    sparkMLInstance.initSparkIfNotAlready()
     val spark: SparkSession = SparkML.sparkSession.get
     val df: DataFrame = spark.createDataFrame(rowList,r.schema)
-    df.show()
+//    df.show()
     val assembler = new VectorAssembler().setInputCols(r.schema.map(_.name).filter(!_.contains(colName)).toArray).setOutputCol("features")
     val df1 = assembler.transform(df)
-    df1.show()
+//    df1.show()
     val predictions: DataFrame = trainedNBC.transform(df1.select(org.apache.spark.sql.functions.col("features")))
 //    val predictions = trainedNBC.transform(df.select(r.schema.map(_.name).filter(!_.equals(colName)).map(org.apache.spark.sql.functions.col(_)): _*))
     val res: Any = predictions.select("prediction").collectAsList().get(0)(0)
