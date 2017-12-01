@@ -20,7 +20,7 @@ object SparkML {
 
 abstract class SparkML {
   def getSparkSession() : SparkContext = {
-    val conf = new SparkConf().setMaster("local[*]").setAppName("MultiClassClassification")
+    val conf = new SparkConf().setAppName("MultiClassClassification")//.setMaster("local[*]")
     if(ExperimentalOptions.isEnabled("GPROM-BACKEND")){
       sys.props.get("os.name") match {
         case Some(osname) if osname.startsWith("Mac OS X") => conf.set("spark.executorEnv.DYLD_INSERT_LIBRARIES",System.getProperty("java.home")+"/lib/libjsig.dylib")

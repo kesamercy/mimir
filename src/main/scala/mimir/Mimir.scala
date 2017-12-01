@@ -52,7 +52,8 @@ object Mimir extends LazyLogging {
     // Set up the database connection(s)
     conf.backendType.get match {
       case Some("sqlite") => db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
-      case Some("spark") => db = new Database(new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", conf.dbname()))))
+//      case Some("spark") => db = new Database(new SparkSQLBackend(sqliteSparkConnection(new JDBCBackend("sqlite", conf.dbname()))))
+      case Some("spark") => db = new Database(new SparkSQLBackend(csvSparkConnection(conf.sparkCsvDir())))
       case None => db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
     }
     if(!conf.quiet()){
@@ -309,4 +310,5 @@ class MimirConfig(arguments: Seq[String]) extends ScallopConf(arguments)
   val experimental = opt[List[String]]("X", default = Some(List[String]()))
   val backendType = opt[String]("dbType", descr = "Which backend database to use? sqlite or spark",
     default = Some("sqlite"))
+  val sparkCsvDir = opt[String]("sparkCsvDir", descr = "Directory containing csv files (not ending in slash).")
 }

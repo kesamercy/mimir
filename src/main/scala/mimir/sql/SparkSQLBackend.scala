@@ -43,7 +43,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def open() = {
     this.synchronized({
-      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[*]")
+      val conf = new SparkConf().setAppName("MimirSparkSQLBackend")//.setMaster("local[*]")
       spark = SparkSession
         .builder()
         .config(conf)
@@ -332,6 +332,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
     dataType match {
       case IntegerType => TInt()
       case DoubleType => TFloat()
+      case FloatType => TFloat()
       case LongType => TFloat()
       case _ => TString()
     }

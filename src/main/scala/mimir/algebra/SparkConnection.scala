@@ -54,7 +54,7 @@ object SparkConnection {
 
       case dataframeSparkConnection(dataFrame) => "dataframe"
       case csvSparkConnection(csvDirectory) =>
-        val df = spark.read.format("csv").option("header", "true").load(s"${csvDirectory}/${tableName.toLowerCase()}.csv")
+        val df = spark.read.format("csv").option("header", "true").option("inferSchema", "true").load(s"${csvDirectory}/${tableName.toLowerCase()}.csv")
         df.createOrReplaceTempView(tableName)
 //      case rddSparkConnection() => "rdd"
     }

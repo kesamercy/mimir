@@ -21,7 +21,7 @@ scalacOptions ++= Seq(
 unmanagedResourceDirectories in Compile += baseDirectory.value / "lib_extra"
 includeFilter in (Compile, unmanagedResourceDirectories):= ".dylib,.dll,.so"
 unmanagedClasspath in Runtime += baseDirectory.value / "conf"
-unmanagedResourceDirectories in Test += baseDirectory.value / "conf"
+unmanagedResourceDirectories in Compile += baseDirectory.value / "conf"
 
 fork := true
 outputStrategy in run := Some(StdoutOutput)
@@ -41,9 +41,23 @@ runMimirVizier := {
   val args = sbt.complete.Parsers.spaceDelimited("[main args]").parsed
   val classpath = (fullClasspath in Compile).value
   val classpathString = Path.makeString(classpath map { _.data })
-  val jvmArgs = Seq("-Xmx4g", "-Dcom.github.fommil.netlib.BLAS=com.github.fommil.netlib.F2jBLAS", "-Dcom.github.fommil.netlib.LAPACK=com.github.fommil.netlib.F2jLAPACK", "-Dcom.github.fommil.netlib.ARPACK=com.github.fommil.netlib.F2jARPACK")
-  val (jh, os, bj, bd, jo, ci, ev) = (javaHome.value, outputStrategy.value, Vector[java.io.File](), 
-		Some(baseDirectory.value), (jvmArgs ++ Seq("-classpath", classpathString)).toVector, connectInput.value, envVars.value)
+  val debugTestJVMArgs = Seq()//Seq("-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=5005")
+  val jvmArgs = debugTestJVMArgs ++ Seq("-Xmx4g", "-Dcom.github.fommil.netlib.BLAS=com.github.fommil.netlib.F2jBLAS", "-Dcom.github.fommil.netlib.LAPACK=com.github.fommil.netlib.F2jLAPACK", "-Dcom.github.fommil.netlib.ARPACK=com.github.fommil.netlib.F2jARPACK")
+  val (jh, os, bj, bd, jo, ci, ev) = (javaHome.value, outputStrategy.value, Vector[java.io.File](),
+    Some(baseDirectory.value), (jvmArgs ++ Seq("-classpath", classpathString)).toVector, connectInput.value, sys.props.get("os.name") match {
+    //case Some(osname) if osname.startsWith("Mac OS X") =>  Map(("DYLD_INSERT_LIBRARIES",System.getProperty("java.home")+"/lib/libjsig.dylib"))
+    case Some(osname) if osname.startsWith("Mac OS X") => sys.props.get("os.arch") match {
+      case Some(osarch) if osarch.endsWith("64") => Map(("LD_PRELOAD_64",System.getProperty("java.home")+"/lib/libjsig.dylib"))
+      case Some(osarch) => Map(("LD_PRELOAD",System.getProperty("java.home")+"/lib/libjsig.dylib"))
+      case None => envVars.value
+    }
+    case Some(otherosname) => sys.props.get("os.arch") match {
+      case Some(osarch) if osarch.endsWith("64") => Map(("LD_PRELOAD_64",System.getProperty("java.home")+"/lib/"+System.getProperty("os.arch")+"/libjsig.so"))
+      case Some(osarch) => Map(("LD_PRELOAD",System.getProperty("java.home")+"/lib/"+System.getProperty("os.arch")+"/libjsig.so"))
+      case None => envVars.value
+    }
+    case None => envVars.value
+  })
   Fork.java(
     ForkOptions(jh, os, bj, bd, jo, ci, ev),
     "mimir.MimirVizier" +: args
@@ -52,22 +66,22 @@ runMimirVizier := {
 
 //for tests that need to run in their own jvm because they need specific envArgs or otherwise
 testGrouping in Test := {
-	val (jh, os, bj, bd, jo, ci, ev) = (javaHome.value, outputStrategy.value, Vector[java.io.File](), 
-		baseDirectory.value, javaOptions.value.toVector, connectInput.value, envVars.value)
-	val testsToForkSeperately = Seq("mimir.gprom.algebra.OperatorTranslationSpec")
-	val seperateForkedEnvArgs = Map(("mimir.gprom.algebra.OperatorTranslationSpec", sys.props.get("os.name") match {
-	  	case Some(osname) if osname.startsWith("Mac OS X") => Map(("DYLD_INSERT_LIBRARIES",System.getProperty("java.home")+"/lib/libjsig.dylib"))
-	  	case Some(otherosname) => Map(("LD_PRELOAD",System.getProperty("java.home")+"/lib/"+System.getProperty("os.arch")+"/libjsig.so"))
-	  	case None => envVars.value
-	  }))
-	val (forkedTests, otherTests) = (definedTests in Test).value.partition { test => testsToForkSeperately.contains(test.name) }
-    Seq(Tests.Group(name = "Single JVM tests", tests = otherTests, runPolicy = Tests.SubProcess(
-	    ForkOptions( jh, os, bj, Some(bd), jo, ci, ev)
-	    ))) ++ forkedTests.map { test =>
-	  Tests.Group(name = test.name, tests = Seq(test), runPolicy = Tests.SubProcess(
-	    ForkOptions( jh, os, bj, Some(bd), jo, ci, seperateForkedEnvArgs.getOrElse(test.name, ev))
-	    ))
-	}
+  val (jh, os, bj, bd, jo, ci, ev) = (javaHome.value, outputStrategy.value, Vector[java.io.File](),
+    baseDirectory.value, javaOptions.value.toVector, connectInput.value, envVars.value)
+  val testsToForkSeperately = Seq("mimir.gprom.algebra.OperatorTranslationSpec")
+  val seperateForkedEnvArgs = Map(("mimir.gprom.algebra.OperatorTranslationSpec", sys.props.get("os.name") match {
+    case Some(osname) if osname.startsWith("Mac OS X") => Map(("DYLD_INSERT_LIBRARIES",System.getProperty("java.home")+"/lib/libjsig.dylib"))
+    case Some(otherosname) => Map(("LD_PRELOAD",System.getProperty("java.home")+"/lib/"+System.getProperty("os.arch")+"/libjsig.so"))
+    case None => envVars.value
+  }))
+  val (forkedTests, otherTests) = (definedTests in Test).value.partition { test => testsToForkSeperately.contains(test.name) }
+  Seq(Tests.Group(name = "Single JVM tests", tests = otherTests, runPolicy = Tests.SubProcess(
+    ForkOptions( jh, os, bj, Some(bd), jo, ci, ev)
+  ))) ++ forkedTests.map { test =>
+    Tests.Group(name = test.name, tests = Seq(test), runPolicy = Tests.SubProcess(
+      ForkOptions( jh, os, bj, Some(bd), jo, ci, seperateForkedEnvArgs.getOrElse(test.name, ev))
+    ))
+  }
 }
 
 
@@ -80,7 +94,7 @@ libraryDependencies ++= Seq(
   ////////////////////// Command-Line Interface Utilities //////////////////////
   "org.rogach"                    %%  "scallop"                  % "0.9.5",
   "org.jline"                     %   "jline"                    % "3.2.0",
-  "info.mimirdb"                  %   "jsqlparser"               % "1.0.2",
+  "info.mimirdb"                  %   "jsqlparser"               % "1.0.3",
 
   ////////////////////// Dev Tools -- Logging, Testing, etc... //////////////////////
   "com.typesafe.scala-logging"    %%  "scala-logging-slf4j"      % "2.1.2",
@@ -92,13 +106,13 @@ libraryDependencies ++= Seq(
   //////////////////////// Data Munging Tools //////////////////////
   "com.github.nscala-time"        %%  "nscala-time"              % "1.2.0",
   "org.apache.lucene"             %   "lucene-spellchecker"      % "3.6.2",
-  "org.apache.servicemix.bundles" %   "org.apache.servicemix.bundles.collections-generic" 
-                                                                 % "4.01_1",
+  "org.apache.servicemix.bundles" %   "org.apache.servicemix.bundles.collections-generic"
+    % "4.01_1",
   "org.scala-lang.modules"        %%  "scala-parser-combinators" % "1.0.6",
   "org.apache.commons"            %   "commons-csv"              % "1.4",
   "commons-io"                    %   "commons-io"               % "2.5",
   "com.github.wnameless"          %   "json-flattener"           % "0.2.2",
-  "com.typesafe.play"             %%  "play-json"                % "2.4.11",
+  "com.typesafe.play"             %%  "play-json"                % "2.5.0-M2",
 
   //////////////////////// Lens Libraries //////////////////////
   // WEKA - General-purpose Classifier Training/Deployment Library
@@ -109,16 +123,14 @@ libraryDependencies ++= Seq(
   ("nz.ac.waikato.cms.moa"        %   "moa"                      % "2014.11").
     exclude("nz.ac.waikato.cms.weka",  "weka-dev").
     exclude("nz.ac.waikato.cms.weka.thirdparty", "java-cup-11b-runtime"),
-    
-  //spark
-  "org.apache.spark"				  %%  "spark-core"			  % "2.1.0",
-  "org.apache.spark" 			  %% "spark-sql" 			  % "2.1.0",
-  "org.apache.spark" 			  %% "spark-hive" 			  % "2.1.0",
-  "org.scala-lang" 				  %   "scala-reflect" 		  % scalaVersion.value,
 
-  "org.apache.spark" 			  %   "spark-sql_2.11" 		  % "2.2.0",
-  "org.apache.spark" 			  %   "spark-mllib_2.11" 	  % "2.2.0",
- 
+
+  "org.apache.spark"				  %%  "spark-core"			  % "2.2.0" exclude("org.slf4j", "slf4j-log4j12"),
+
+  //spark ml
+  "org.apache.spark" 			  %   "spark-sql_2.11" 		  % "2.2.0" exclude("org.slf4j", "slf4j-log4j12"),
+  "org.apache.spark" 			  %   "spark-mllib_2.11" 	  % "2.2.0" exclude("org.slf4j", "slf4j-log4j12"),
+
   //////////////////////// Jung ////////////////////////
   // General purpose graph manipulation library
   // Used to detect and analyze Functional Dependencies
@@ -126,7 +138,7 @@ libraryDependencies ++= Seq(
   "net.sf.jung"                   %   "jung-algorithms"          % "2.0.1",
   "net.sf.jung"                   %   "jung-visualization"       % "2.0.1",
   "jgraph"                        %   "jgraph"                   % "5.13.0.0",
-  "javax.media" 		              %   "jai_core"                 % "1.1.3",  
+  "javax.media" 		              %   "jai_core"                 % "1.1.3",
   //
 
   //////////////////////// Geotools ////////////////////////
@@ -144,11 +156,12 @@ libraryDependencies ++= Seq(
   "net.java.dev.jna"              %    "jna-platform"            % "4.2.2",
   "org.apache.logging.log4j" 	  %    "log4j-api" 				 % "2.8.2",
   "org.apache.logging.log4j" 	  %    "log4j-core" 			 % "2.8.2",
-  
+  "org.apache.logging.log4j" 	  %%   "log4j-api-scala"         % "2.8.2",
+
   ///////////////////// Viztrails Integration ///////////////////
-  
+
   "net.sf.py4j" 				  %	   "py4j" 				  % "0.10.4",
-  
+
   //////////////////////// Visualization //////////////////////
   // For now, all of this happens in python with matplotlib
   // and so we don't need any external dependencies.
@@ -199,8 +212,8 @@ assemblyMergeStrategy in assembly := {
   case PathList("com", "esotericsoftware", xs @ _*) => MergeStrategy.last
   case PathList("com", "codahale", xs @ _*) => MergeStrategy.last
   case PathList("com", "yammer", xs @ _*) => MergeStrategy.last
-  case PathList("ch", "qos", xs @ _*) => MergeStrategy.last
-  case PathList("org", "slf4j", xs @ _*) => MergeStrategy.last
+  case PathList("ch", "qos", xs @ _*) => MergeStrategy.first
+  case PathList("org", "slf4j", xs @ _*) => MergeStrategy.first
   case PathList("org", "codehaus", xs @ _*) => MergeStrategy.last
   case PathList("com", "googlecode", xs @ _*) => MergeStrategy.last
   case "overview.html" => MergeStrategy.rename
