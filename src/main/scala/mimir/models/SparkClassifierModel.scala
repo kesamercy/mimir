@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import scala.util._
-import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.types.{DataType, StringType}
 
 object SparkClassifierModel
 {
@@ -94,18 +94,18 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
 
       // colName is the target col
       val targetLabel = ProjectArg(colName,Var(colName))
-      val features: Seq[String] = query.columnNames.filter(!_.equals(colName))
+      val features: Seq[(String,Int)] = query.columnNames.zipWithIndex.filter(!_._1.equals(colName))
 
-      val naiveBayesProject: Seq[ProjectArg] = Seq[ProjectArg](targetLabel,ProjectArg("features",Vector(features)))
+//      val naiveBayesProject: Seq[ProjectArg] = Seq[ProjectArg](targetLabel,ProjectArg("features",Vector(features)))
 
-      val tq = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Project(naiveBayesProject,Select(Not(IsNullExpression(Var(colName))),query)))
-      val assembler = new VectorAssembler().setInputCols(features.toArray).setOutputCol("features")
-      val df = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(tq)
+      val tq = Limit(0, Some(SparkClassifierModel.TRAINING_LIMIT), Select(Not(IsNullExpression(Var(colName))),query))
+//      val assembler = new VectorAssembler().setInputCols(features.map(_._1).toArray).setOutputCol("features")
+      val df = db.backend.asInstanceOf[SparkSQLBackend].OperatorToDF(tq).na.drop()
       //val df2 = assembler.transform(df.na.drop())
       trainedNBC = org.apache.spark.mllib.classification.NaiveBayes.train(df.rdd.map(row => {
         LabeledPoint(
-        row.getAs[Long](colName).toDouble,
-        org.apache.spark.mllib.linalg.Vectors.dense(row.getAs[GenericRowWithSchema]("features").toSeq.asInstanceOf[Seq[Long]].map(_.toDouble).toArray)
+        row.getAs[Any](colName).toString.toDouble,
+        org.apache.spark.mllib.linalg.Vectors.dense(features.map((c) => {row.get(c._2).toString.toDouble}).toArray)
       )}), lambda = 1.0, modelType = "multinomial")
 
 //      trainedNBC = new org.apache.spark.ml.classification.NaiveBayes().fit(df2.select(org.apache.spark.sql.functions.col(colName).as("label"),org.apache.spark.sql.functions.col("features")))
@@ -128,8 +128,9 @@ class SimpleSparkClassifierModel(name: String, colName: String, query: Operator)
     val predictions = trainedNBC.transform(df.select(r.schema.map(_.name).filter(!_.equals(colName)).map(org.apache.spark.sql.functions.col(_)): _*))
     val res: Any = predictions.select("prediction").collectAsList().get(0)(0)
 */
-    val newSch: Seq[String] = r.schema.map(_.name).filter(!_.contains(colName))
-    trainedNBC.predict(Vectors.dense(newSch.map((c) => r.getAs[Long](c).toDouble).toArray))
+    val newSch: Seq[(String,Int)] = r.schema.zipWithIndex.map((c)=> (c._1.name,c._2)).filter(!_._1.contains(colName))
+    val res = newSch.map((c) => {r.get(c._2).toString().toDouble}).toArray
+    trainedNBC.predict(Vectors.dense(res))
   }
 
   def initSparkIfNotAlready(): Unit = {

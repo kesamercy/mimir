@@ -122,8 +122,8 @@ object SparkTests extends SQLTestSpecification("databases/debug",Map("jdbc" -> "
       // create lens mv1 as select * from hundred with missing_value('C');
       // select * from mv1;
 
-      val lensName = "TEST40"
-//      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
+      val lensName = "TEST45"
+      update(s"CREATE LENS $lensName as SELECT * FROM R WITH MISSING_VALUE('C')")
       query(s"SELECT sum(c) FROM $lensName"){output.print(_)}
 //      query(s"SELECT C FROM $lensName"){output.print(_)}
 
