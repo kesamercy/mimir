@@ -56,8 +56,10 @@ object Mimir extends LazyLogging {
       case Some("spark") => db = new Database(new SparkSQLBackend(csvSparkConnection(conf.sparkCsvDir())))
       case None => db = new Database(new JDBCBackend(conf.backend(), conf.dbname()))
     }
-    if(!conf.quiet()){
-      output.print("Connecting to " + conf.backend() + "://" + conf.dbname() + "...")
+    if(!conf.quiet() && conf.backendType.get.get.equals("sqlite")) {
+        output.print("Connecting to " + conf.backend() + "://" + conf.dbname() + "...")
+    } else if (!conf.quiet() && conf.backendType.get.get.equals("spark")) {
+        output.print("Initializing Spark backend using " +  conf.sparkCsvDir() + " as csv directory.")
     }
     db.backend.open()
     if(conf.backendType.get.get.equals("spark"))
