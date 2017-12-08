@@ -43,7 +43,7 @@ class SparkSQLBackend(sparkConnection: SparkConnection, metaDataStore: JDBCBacke
 
   def open() = {
     this.synchronized({
-      val conf = new SparkConf().setAppName("MimirSparkSQLBackend").setMaster("local[*]")
+      val conf = new SparkConf().setAppName("MimirSparkSQLBackend")
       spark = SparkSession
         .builder()
         .config(conf)

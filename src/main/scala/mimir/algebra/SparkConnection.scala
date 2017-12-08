@@ -34,7 +34,10 @@ object SparkConnection {
     case _ => // do nothing
   }
 
-  def loadTable(spark: SparkSession, sparkConnection: SparkConnection, tableName: String, tableAlias: String = null): Unit = {
+  def loadTable(spark: SparkSession,
+                sparkConnection: SparkConnection,
+                tableName: String,
+                tableAlias: String = null): Unit = {
     /*
       Used to load a table into the spark session, extend for
      */
