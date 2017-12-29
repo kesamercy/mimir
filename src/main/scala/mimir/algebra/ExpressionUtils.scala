@@ -51,7 +51,7 @@ object ExpressionUtils {
 	 * if(A){ X } else { if(B){ Y } else { Z } }
 	 */
 	def makeCaseExpression(
-    whenThenClauses: List[(Expression, Expression)], 
+    whenThenClauses: Seq[(Expression, Expression)], 
 		elseClause: Expression
   ): Expression =
 	{

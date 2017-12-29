@@ -63,17 +63,23 @@ class SystemCatalog(db: Database)
 
 object SystemCatalog 
 {
+  val schemaNameColumn = "SCHEMA_NAME"
+  val tableNameColumn  = "TABLE_NAME"
+  val attrNameColumn   = "ATTR_NAME"
+  val attrTypeColumn   = "ATTR_TYPE"
+  val isKeyColumn      = "IS_KEY"
+
   val tableCatalogSchema = 
     Seq( 
-      ("SCHEMA_NAME", TString()),
-      ("TABLE_NAME", TString())
+      (schemaNameColumn, TString()),
+      (tableNameColumn,  TString())
     )
   val attrCatalogSchema =
     Seq( 
-      ("SCHEMA_NAME", TString()),
-      ("TABLE_NAME", TString()), 
-      ("ATTR_NAME", TString()),
-      ("ATTR_TYPE", TString()),
-      ("IS_KEY", TBool())
+      (schemaNameColumn, TString()),
+      (tableNameColumn,  TString()), 
+      (attrNameColumn,   TString()),
+      (attrTypeColumn,   TString()),
+      (isKeyColumn,      TBool())
     )
 }
