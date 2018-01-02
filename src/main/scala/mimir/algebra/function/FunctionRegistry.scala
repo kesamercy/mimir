@@ -20,11 +20,24 @@ case class ExpressionFunction(
   args:Seq[String], 
   expr: Expression
 ) extends RegisteredFunction
+{
+  def unfold(argValues: Seq[Expression]) =
+  {
+    Eval.inline(expr, args.zip(argValues).toMap)
+  }
+}
 
 case class FoldFunction(
   name: String, 
   expr: Expression
 ) extends RegisteredFunction
+{
+  def unfold(argValues: Seq[Expression]) =
+  {
+    argValues.tail.foldLeft[Expression](argValues.head){ case (curr,next) => 
+      Eval.inline(expr, Map("CURR" -> curr, "NEXT" -> next)) }    
+  }
+}
 
 class FunctionRegistry {
 	
@@ -83,14 +96,8 @@ class FunctionRegistry {
 
   def unfold(fname: String, args: Seq[Expression]): Option[Expression] = 
     get(fname) match {
-      case _:NativeFunction => None
-      case ExpressionFunction(_, argNames, expr) => 
-        Some(Eval.inline(expr, argNames.zip(args).toMap))
-      case FoldFunction(_, expr) => 
-        Some(
-          args.tail.foldLeft[Expression](args.head){ case (curr,next) => 
-            Eval.inline(expr, Map("CURR" -> curr, "NEXT" -> next)) }
-        )
-
+      case _:NativeFunction     => None
+      case e:ExpressionFunction => Some(e.unfold(args))
+      case e:FoldFunction       => Some(e.unfold(args))
     }
 }

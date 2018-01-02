@@ -244,6 +244,15 @@ case class Function(op: String, params: Seq[Expression]) extends Expression {
   def rebuild(c: Seq[Expression]) = Function(op, c)
 }
 
+@SerialVersionUID(100L)
+case class CastExpression(t: Type, expr: Expression) extends Expression 
+{
+  override def toString() = "CAST("+expr.toString+" AS "+t+")"
+  def children = Seq(expr)
+  def rebuild(c: Seq[Expression]) = CastExpression(t, c(0))
+
+}
+
 /**
  * Representation of a column reference (a SQL variable).  Names are all that's
  * needed.  Typechecker expects Operators to be self-contained, but not 

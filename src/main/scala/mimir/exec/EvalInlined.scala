@@ -130,6 +130,7 @@ class EvalInlined[T](scope: Map[String, (Type, (T => PrimitiveValue))], db: Data
       case Function(name, args) => {
         val l = compileFunction(name, args); { l(_).asLong }
       }
+      case CastExpression(t, e) => val l = compile(e); { l(_).asLong }
       case Conditional(c, t, e) => compileConditional(c, t, e, compileForLong)
       case _ => throw new RAException(s"Invalid Expression on Int: $e")
     }
@@ -155,6 +156,7 @@ class EvalInlined[T](scope: Map[String, (Type, (T => PrimitiveValue))], db: Data
       case Function(name, args) => {
         val l = compileFunction(name, args); { l(_).asDouble }
       }
+      case CastExpression(t, e) => val l = compile(e); { l(_).asDouble }
       case Conditional(c, t, e) => compileConditional(c, t, e, compileForDouble)
       case _ => throw new RAException(s"Invalid Expression on Float: $e")
     }
@@ -251,6 +253,7 @@ class EvalInlined[T](scope: Map[String, (Type, (T => PrimitiveValue))], db: Data
       case Function(name, args) => {
         val l = compileFunction(name, args); { l(_).asBool }
       }
+      case CastExpression(t, e) => val l = compile(e); { l(_).asBool }
       case Conditional(c, t, e) => compileConditional(c, t, e, compileForBool)
       case _ => throw new RAException(s"Invalid Expression on Bool: $e")
     }
@@ -370,6 +373,7 @@ class EvalInlined[T](scope: Map[String, (Type, (T => PrimitiveValue))], db: Data
         val v = compileProc(p); 
         Right( { (t) => v(t).isInstanceOf[NullPrimitive] } ) 
       }
+      case CastExpression(t, e) => val l = compile(e); Right({ x:T => Cast(t, l(x)).isInstanceOf[NullPrimitive] })
       case _:IsNullExpression => {
         Left(false)
       }

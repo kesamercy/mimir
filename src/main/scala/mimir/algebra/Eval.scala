@@ -132,6 +132,8 @@ class Eval(
       }
       case Function(name, args) => 
         applyFunction(name.toUpperCase, args.map { eval(_, bindings) })
+      case CastExpression(t, expr) =>
+        Cast(t, eval(expr, bindings))
     }
   }
 

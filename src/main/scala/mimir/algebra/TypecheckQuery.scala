@@ -1,5 +1,7 @@
 package mimir.algebra
 
+import mimir.Database
+import mimir.algebra.function._
 import mimir.statistics.SystemCatalog
 
 // Need To Implement Functions
@@ -10,9 +12,42 @@ import mimir.statistics.SystemCatalog
 object TypecheckQuery 
 {
 
-  def apply(expr: Expression): Expression =
+  val LU_BOUND_AGGREGATE = "MIMIR_TYPE_LU_BOUND_AG"
+  val LU_BOUND_FUNCTION = "MIMIR_TYPE_LU_BOUND_FUN"
+  val GET_AGG_TYPE = "MIMIR_TYPE_OF_AGGREGATE"
+  val GET_FN_TYPE = "MIMIR_TYPE_OF_FUNCTION"
+  val GET_ARITH_TYPE = "MIMIR_TYPE_OF_ARITH"
+  val GET_VGTERM_TYPE = "MIMIR_TYPE_OF_VGTERM"
+
+  def apply(expr: Expression, bindings: Map[String, Expression] = Map()): Expression =
   {
-    ???
+    expr match {
+      case p: PrimitiveValue => TypePrimitive(p.getType)
+
+      case CastExpression(t, _) => TypePrimitive(t)
+
+      case Arithmetic(op, a, b) => Function(GET_ARITH_TYPE, Seq(
+                                                StringPrimitive(Arith.opString(op)), 
+                                                apply(a), 
+                                                apply(b)
+                                            ))
+
+      case (_:Comparison) | (_:IsNullExpression) | (_:Not) => TypePrimitive(TBool())
+
+      case Conditional(cond, t, e) => Function(LU_BOUND_FUNCTION, Seq(apply(t), apply(e)))
+
+      case Function(fn, args) => Function(GET_FN_TYPE, Seq(StringPrimitive(fn)) ++ args.map { apply(_) } )
+
+      case JDBCVar(t) => return TypePrimitive(t)
+
+      case RowIdVar() => return TypePrimitive(TRowId())
+
+      case VGTerm(name, idx, args, hints) => Function(GET_VGTERM_TYPE, Seq(StringPrimitive(name), IntPrimitive(idx)) ++ args.map { apply(_) })
+
+      case p:Proc => throw new RAException(s"Query-based typechecking of Procs unsupported in $expr")
+
+      case Var(v) => apply(bindings(v))
+    }
   }
   
   def mapSchema(
@@ -103,7 +138,7 @@ object TypecheckQuery
             .union { apply(rhs) }
             .groupBy( Var(SystemCatalog.attrNameColumn) ){
               AggFunction(
-                "MIMIR_TYPE_LU_BOUND", false, 
+                LU_BOUND_AGGREGATE, false, 
                 Seq(Var(SystemCatalog.attrTypeColumn)), 
                 SystemCatalog.attrTypeColumn
               )
@@ -140,7 +175,7 @@ object TypecheckQuery
             val aggregateTypeExpressions = 
               aggregates.map { case AggFunction(name, _, args, alias) =>
                 alias -> Function(
-                    "MIMIR_TYPE_OF_AGGREGATE", 
+                    GET_AGG_TYPE, 
                     Seq(StringPrimitive(name))
                       ++ (0 until args.length).map { i => Var(i+"_"+alias) }
                   )
@@ -174,5 +209,70 @@ object TypecheckQuery
     }
   }
 
+  def registerFunctions(db: Database)
+  {
+    db.functions.register(
+      GET_ARITH_TYPE,
+      { 
+        case Seq(StringPrimitive(op), TypePrimitive(a), TypePrimitive(b)) => 
+          Typechecker.escalate(a, b, Arith.fromString(op)) match {
+            case Some(t) => TypePrimitive(t)
+            case None => NullPrimitive()
+          }
+        case _ => NullPrimitive()
+      },
+      (_) => TType()
+    )
+    db.functions.register(
+      LU_BOUND_FUNCTION,
+      { 
+        case Seq(TypePrimitive(a), TypePrimitive(b)) => 
+          Typechecker.leastUpperBound(a, b) match {
+            case Some(t) => TypePrimitive(t)
+            case None => NullPrimitive()
+          }
+        case _ => NullPrimitive()
+      },
+      (_) => TType()
+    )
+    db.functions.register(
+      GET_FN_TYPE,
+      (args:Seq[PrimitiveValue]) => {
+        val fname = args(0).asString
+        val argTypes = args.tail.map { case TypePrimitive(t) => t; case _ => TAny() }
+
+        db.functions.getOption(fname) match {
+          case Some(f: NativeFunction) => 
+            TypePrimitive(f.typechecker(argTypes))
+          case Some(f: ExpressionFunction) => 
+            TypePrimitive(
+              db.typechecker.typeOf(f.expr, f.args.zip(argTypes).toMap)
+            )
+          case Some(f: FoldFunction) => {
+            val placeholders = (0 until argTypes.length).map { "PLACEHOLDER_"+_ }
+            TypePrimitive(
+              db.typechecker.typeOf(
+                f.unfold(placeholders.map { Var(_) }),
+                placeholders.zip(argTypes).toMap
+              )
+            )
+          }
+          case None => NullPrimitive()
+        }
+      },
+      (_) => TType()
+    )
+    db.functions.register(
+      GET_VGTERM_TYPE,
+      (args:Seq[PrimitiveValue]) => {
+        val model = args(0).asString
+        val idx   = args(1).asLong.toInt
+        val argTypes = args.tail.tail.map { case TypePrimitive(t) => t; case _ => TAny() }
+
+        TypePrimitive(db.models.get(model).varType(idx, argTypes))
+      },
+      (_) => TType()
+    )
+  }
 
 }

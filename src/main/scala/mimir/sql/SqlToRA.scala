@@ -595,7 +595,7 @@ class SqlToRA(db: Database)
           case _ => throw new SQLException(s"Invalid CAST Type: $cast")
         }
 
-        return mimir.algebra.Function("CAST", Seq(target, TypePrimitive(t)))
+        return mimir.algebra.CastExpression(t, target)
       }
 
       case f:Function => {

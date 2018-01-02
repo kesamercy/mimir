@@ -116,6 +116,9 @@ case class Database(backend: Backend)
                                   functions = Some(functions)
                                 )  
 
+  {
+    TypecheckQuery.registerFunctions(this)
+  }
   /**
    * Optimize and evaluate the specified query.  Applies all Mimir-specific optimizations
    * and rewrites the query to properly account for Virtual Tables.

@@ -113,18 +113,7 @@ class Typechecker(
 					case x:NoSuchElementException => throw new MissingVariable(name, x, context)
 				}
 			case JDBCVar(t) => t
-			case Function("CAST", fargs) =>
-				// Special case CAST
-				fargs(1) match {
-					case TypePrimitive(t) => t
-					case p:PrimitiveValue => { p match {
-              case StringPrimitive(s) => Type.toSQLiteType(Integer.parseInt(s))
-              case IntPrimitive(i)  =>  Type.toSQLiteType(i.toInt)
-      	      case _ => throw new RAException("Invalid CAST to '"+p+"' of type: "+recur(p))
-            }
-					}
-					case _ => TAny()
-				}
+			case CastExpression(t, _) => t
 			case Function(name, args) => 
 				returnTypeOfFunction(name, args.map { recur(_) })
 
