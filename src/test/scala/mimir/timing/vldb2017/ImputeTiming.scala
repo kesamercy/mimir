@@ -17,11 +17,11 @@ import mimir.exec.uncertainty._
 
 object ImputeTiming
   extends VLDB2017TimingTest("VLDB2017Impute", Map("reset" -> "NO", "inline" -> "YES"))//, "initial_db" -> "test/tpch-impute-1g.db"))
-  with BeforeAll
+  //with BeforeAll
 {
 
   sequential
-
+/*
   val fullReset = false
   val runBestGuessQueries = false
   val runTupleBundleQueries = false
@@ -225,5 +225,5 @@ object ImputeTiming
       }
 
     }
-  }
+  }*/
 }

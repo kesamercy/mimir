@@ -1,6 +1,6 @@
 package mimir.statistics
 
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 
 import mimir.Database
 import mimir.algebra._

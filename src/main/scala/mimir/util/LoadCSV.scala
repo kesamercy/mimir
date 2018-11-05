@@ -1,6 +1,6 @@
 package mimir.util
 
-import com.typesafe.scalalogging.slf4j.StrictLogging
+import com.typesafe.scalalogging.StrictLogging
 
 import java.io.{File, FileReader, BufferedReader}
 import java.io._

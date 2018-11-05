@@ -5,6 +5,9 @@ import org.specs2.mutable._
 import mimir.test._
 import optimus.optimization._
 import optimus.algebra._
+import optimus.algebra.AlgebraOps._
+import optimus.optimization.enums._
+import optimus.optimization.model._
 
 object CTPrioritizerSpec extends Specification {
 
@@ -13,7 +16,7 @@ object CTPrioritizerSpec extends Specification {
 
   "test" should {
   	"pass" >> {
-      implicit val problem = MIProblem(SolverLib.ojalgo)
+      implicit val problem = MPModel(SolverLib.oJSolver)
 
       // Data (filled randomly)
       val numI = 5
@@ -116,7 +119,7 @@ object CTPrioritizerSpec extends Specification {
       x.foreach(_.foreach(_.isBinary should beTrue))
       z.foreach(_.isBinary should beTrue)
       checkConstraints() should beTrue
-      status should beEqualTo(ProblemStatus.OPTIMAL)
+      status should beEqualTo(SolutionStatus.OPTIMAL)
   	}
   	/*"pass this also" >> {
 

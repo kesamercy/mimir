@@ -12,7 +12,7 @@ import java.sql.ResultSet
 
 import scala.collection.mutable
 
-import com.typesafe.scalalogging.slf4j.Logger
+import com.typesafe.scalalogging.Logger
 
 import edu.uci.ics.jung.algorithms.layout.{CircleLayout, Layout, TreeLayout}
 import edu.uci.ics.jung.graph.{DelegateTree, DirectedGraph, DirectedSparseMultigraph, Forest, Graph, SparseMultigraph, Tree, UndirectedSparseMultigraph}

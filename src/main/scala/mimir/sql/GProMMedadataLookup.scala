@@ -46,7 +46,7 @@ import mimir.algebra.RowIdVar
 import mimir.algebra.Var
 import mimir.ctables.CTables
 import mimir.sql.sqlite.VGTermFunctions
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 import mimir.algebra.function.AggregateRegistry
 import mimir.algebra.Arithmetic
 import mimir.algebra.Arith

@@ -11,7 +11,7 @@ import mimir.ctables._
 import mimir.exec._
 import mimir.exec.mode._
 import mimir.serialization._
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 
 
 class ViewManager(db:Database) extends LazyLogging {

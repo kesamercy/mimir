@@ -10,7 +10,7 @@ import mimir.sql.sqlite._
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 
 class JDBCMetadataBackend(val backend: String, val filename: String)
   extends MetadataBackend

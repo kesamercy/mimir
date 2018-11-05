@@ -17,19 +17,19 @@ import mimir.exec.uncertainty._
 
 abstract class VLDB2017TimingTest(dbName: String, config: Map[String,String])
   extends SQLTestSpecification(dbName, config)
-  with TestTimer
-  with AroundTimeout
+  //with TestTimer
+  //with AroundTimeout
 {
   sequential
   args.execute(threadsNb = 1)
-  val timeout: Duration
-  val useMaterialized: Boolean
+  //val timeout: Duration
+  //val useMaterialized: Boolean
   val random = new Random(42)
   val tupleBundle = new TupleBundle( (0 until 10).map { _ => random.nextLong })
   val sampler     = new SampleRows( (0 until 10).map { _ => random.nextLong })
 
 
-  def loadTable(tableFields:(String, String, Type, Double), run:Int=1) =
+  /*def loadTable(tableFields:(String, String, Type, Double), run:Int=1) =
   {
     println(s"VLDB2017TimingTest.loadTable(${tableFields})")
     val (baseTable, columnName, columnType, timeout) = tableFields
@@ -321,7 +321,7 @@ abstract class VLDB2017TimingTest(dbName: String, config: Map[String,String])
         }
     }
   }
-  
+  */
   /*
 SQLite Timing
    

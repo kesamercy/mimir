@@ -30,7 +30,7 @@ import org.apache.spark.sql.execution.command.CreateDatabaseCommand
 import org.apache.spark.sql.execution.command.DropDatabaseCommand
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.hive.HiveContext
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 import mimir.util.S3Utils
 import org.apache.spark.sql.execution.command.DropTableCommand
 import org.apache.spark.sql.catalyst.TableIdentifier

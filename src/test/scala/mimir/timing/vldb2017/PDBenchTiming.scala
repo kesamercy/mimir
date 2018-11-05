@@ -17,13 +17,13 @@ import mimir.exec.uncertainty._
 
 object PDBenchTiming
   extends VLDB2017TimingTest("VLDB2017PDBench", Map("reset" -> "NO", "cleanup" -> "NO", "inline" -> "YES"))
-  with BeforeAll
+  //with BeforeAll
 {
 
   sequential
 
   args(skipAll = !PDBench.isDownloaded)
-
+/*
   val fullReset = true
   val runBestGuessQueries = true
   val runTupleBundleQueries = false
@@ -170,5 +170,5 @@ object PDBenchTiming
 
       }
     }
-  }
+  }*/
 }

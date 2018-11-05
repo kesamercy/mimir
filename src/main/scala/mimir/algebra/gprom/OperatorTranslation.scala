@@ -13,7 +13,7 @@ import mimir.views.ViewAnnotation
 import mimir.ctables.CTPercolator
 import mimir.serialization.Json
 import mimir.algebra.gprom.TranslationUtils._
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 import mimir.optimizer.OperatorOptimization
 import mimir.optimizer.operator.ProjectRedundantColumns
 import mimir.optimizer.operator.InlineProjections

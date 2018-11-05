@@ -17,7 +17,7 @@ import net.sf.jsqlparser.statement.create.table._
 import net.sf.jsqlparser.statement.select.{AllColumns, AllTableColumns, FromItem, PlainSelect, SelectBody, SelectExpressionItem, SubJoin, SubSelect}
 //import net.sf.jsqlparser.statement.provenance.ProvenanceStatement
 import org.joda.time.LocalDate
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.collection.JavaConversions._
 import scala.collection.{immutable, mutable}

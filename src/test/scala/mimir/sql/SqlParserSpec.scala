@@ -7,7 +7,7 @@ import scala.collection.JavaConversions._
 import mimir.parser.{MimirJSqlParser}
 import org.specs2.mutable._
 import org.specs2.matcher.FileMatchers
-import com.typesafe.scalalogging.slf4j.Logger
+import com.typesafe.scalalogging.Logger
 
 import net.sf.jsqlparser.statement.select.{PlainSelect}
 

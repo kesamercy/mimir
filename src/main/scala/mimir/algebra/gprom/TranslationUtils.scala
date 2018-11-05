@@ -2,7 +2,7 @@ package mimir.algebra.gprom
 
 import org.gprom.jdbc.jna._
 import mimir.algebra._
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 
 object TranslationUtils extends LazyLogging {
   def scalaListToGProMList(gpStructures: Seq[GProMStructure]) : GProMList.ByReference = {

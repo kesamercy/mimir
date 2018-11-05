@@ -3,10 +3,10 @@ package mimir.sql.sqlite
 import mimir.algebra._
 import mimir.provenance._
 import mimir.util.{JDBCUtils, HTTPUtils, JsonUtils}
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 import org.geotools.referencing.datum.DefaultEllipsoid
 import org.joda.time.DateTime
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 
 object SQLiteCompat extends LazyLogging{
 

@@ -23,19 +23,19 @@ import java.util.Vector;
 import java.util.Map.Entry;
 
 import oracle.jdbc.pool.OracleDataSource;
-import weka.core.DenseInstance;
-import weka.core.Instance;
-import weka.core.Instances;
-import weka.experiment.DatabaseUtils;
-import weka.experiment.InstanceQuery;
-import moa.classifiers.Classifier;
-import moa.core.InstancesHeader;
-import moa.streams.ArffFileStream;
-import moa.streams.InstanceStream;
+//import weka.core.DenseInstance;
+//import weka.core.Instance;
+//import weka.core.Instances;
+//import weka.experiment.DatabaseUtils;
+//import weka.experiment.InstanceQuery;
+//import moa.classifiers.Classifier;
+//import moa.core.InstancesHeader;
+//import moa.streams.ArffFileStream;
+//import moa.streams.InstanceStream;
 
 //a result wrapper, Instances is to save the structure of the data, relation name, attribute name and type.
 public class Analysis {
-  
+  /*
   
   public static class Model{
     public Classifier classifier;
@@ -381,7 +381,7 @@ public static Classifier getLearner(String classfier){
 			e.printStackTrace();
 		}
 		return learner;
-	}
+	}*/
 
 //public static void main(String[] args) {
 //		//Map<String,String> schema=new HashMap<String,String>();

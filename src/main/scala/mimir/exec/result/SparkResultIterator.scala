@@ -1,7 +1,7 @@
 package mimir.exec.result
 
 import org.apache.spark.sql.DataFrame
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 import mimir.algebra._
 import mimir.sql.RABackend
 import mimir.util.SparkUtils

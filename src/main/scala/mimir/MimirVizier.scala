@@ -19,7 +19,7 @@ import org.gprom.jdbc.jna.GProMWrapper
 import mimir.ctables.Reason
 import org.slf4j.{LoggerFactory}
 import ch.qos.logback.classic.{Level, Logger}
-import com.typesafe.scalalogging.slf4j.LazyLogging
+import com.typesafe.scalalogging.LazyLogging
 import net.sf.jsqlparser.statement.Statement
 import mimir.serialization.Json
 import mimir.util.LoggerUtils

@@ -3,17 +3,17 @@ package mimir.models
 import java.io.File
 import java.sql.SQLException
 import java.util
-import com.typesafe.scalalogging.slf4j.Logger
+import com.typesafe.scalalogging.Logger
 
 import mimir.algebra._
 import mimir.ctables._
 import mimir.util.{RandUtils,TextUtils,TimeUtils}
 import mimir.{Analysis, Database}
-import moa.core.InstancesHeader
+/*import moa.core.InstancesHeader
 import weka.core.{Attribute, DenseInstance, Instance, Instances}
 import weka.experiment.{DatabaseUtils, InstanceQueryAdapter}
 import weka.classifiers.{Classifier, UpdateableClassifier}
-import weka.classifiers.bayes.{NaiveBayesMultinomial,NaiveBayesMultinomialUpdateable,NaiveBayesMultinomialText}
+import weka.classifiers.bayes.{NaiveBayesMultinomial,NaiveBayesMultinomialUpdateable,NaiveBayesMultinomialText}*/
 import mimir.models._
 import mimir.statistics.FuncDep
 
