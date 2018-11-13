@@ -127,7 +127,7 @@ object OperatorTranslation
 			    val offsetExcept = org.apache.spark.sql.catalyst.plans.logical.Limit(
   			      Literal(offset.toInt), 
   			      sparkChildOp)
-			    org.apache.spark.sql.catalyst.plans.logical.Except(sparkChildOp, offsetExcept)
+			    org.apache.spark.sql.catalyst.plans.logical.Except(sparkChildOp, offsetExcept, false)
 			  } else {
           sparkChildOp
         }
@@ -928,9 +928,8 @@ case class BestGuessUDF(oper:Operator, model:Model, idx:Int, args:Seq[Expression
     //println(s"-------------------------> UDF Param overflow: args:${argList.mkString("\n")} hints:${hintList.mkString("\n")}")
     getNative(model.bestGuess(idx, argList, hintList))
   }
-  def getUDF = 
-    ScalaUDF(
-      sparkArgs.length match { 
+  def getUDF = {
+    val inFunc = sparkArgs.length match { 
         case 0 => () => {
           getNative(model.bestGuess(idx, Seq(), Seq()))
         }
@@ -1023,11 +1022,15 @@ case class BestGuessUDF(oper:Operator, model:Model, idx:Int, args:Seq[Expression
           getNative(model.bestGuess(idx, argList, hintList))
         }
         case x => varArgs _
-      },
+      }
+    ScalaUDF(
+      inFunc,
       sparkVarType,
       if(sparkArgs.length > 22) Seq(CreateArray(sparkArgs)) else sparkArgs,
+      org.apache.spark.sql.catalyst.ScalaReflection.getParameterTypeNullability(inFunc), 
       if(sparkArgs.length > 22) Seq(ArrayType(StringType)) else sparkArgTypes,
-      Some(model.name))
+      Some(model.name), true,true)
+  }
 }
 
 case class SampleUDF(oper:Operator, model:Model, idx:Int, seed:Expression, args:Seq[Expression], hints:Seq[Expression]) extends MimirUDF {
@@ -1056,9 +1059,8 @@ case class SampleUDF(oper:Operator, model:Model, idx:Int, seed:Expression, args:
     val (seedi, argList, hintList) = extractArgsAndHintsSeed(args)
     getNative(model.sample(idx, seedi, argList, hintList))
   }
-  def getUDF = 
-    ScalaUDF(
-      sparkArgs.length match { 
+  def getUDF = {
+    val inFunc = sparkArgs.length match { 
         case 0 => () => {
           getNative(model.sample(idx, 0, Seq(), Seq()))
         }
@@ -1151,11 +1153,15 @@ case class SampleUDF(oper:Operator, model:Model, idx:Int, seed:Expression, args:
           getNative(model.sample(idx, seedi, argList, hintList))
         }
         case x => varArgs _
-      },
+      }
+    ScalaUDF(
+      inFunc,
       sparkVarType,
       if(sparkArgs.length > 22) Seq(CreateStruct(sparkArgs)) else sparkArgs,
+      org.apache.spark.sql.catalyst.ScalaReflection.getParameterTypeNullability(inFunc), 
       if(sparkArgs.length > 22) Seq(getStructType(sparkArgTypes)) else sparkArgTypes,
-      Some(model.name))
+      Some(model.name), true, true)
+  }
 }
 
 case class AckedUDF(oper:Operator, model:Model, idx:Int, args:Seq[Expression]) extends MimirUDF {
@@ -1175,9 +1181,8 @@ case class AckedUDF(oper:Operator, model:Model, idx:Int, args:Seq[Expression]) e
     val argList = extractArgs(args.toSeq)
     model.isAcknowledged(idx, argList)
   }
-  def getUDF = 
-    ScalaUDF(
-      sparkArgs.length match { 
+  def getUDF = {
+    val inFunc = sparkArgs.length match { 
         case 0 => () => {
           new java.lang.Boolean(model.isAcknowledged(idx, Seq()))
         }
@@ -1270,11 +1275,15 @@ case class AckedUDF(oper:Operator, model:Model, idx:Int, args:Seq[Expression]) e
           model.isAcknowledged(idx, argList)
         }
         case x => varArgs _
-      },
+      }
+    ScalaUDF(
+      inFunc,
       BooleanType,
       if(sparkArgs.length > 22) Seq(CreateStruct(sparkArgs)) else sparkArgs,
+      org.apache.spark.sql.catalyst.ScalaReflection.getParameterTypeNullability(inFunc), 
       if(sparkArgs.length > 22) Seq(getStructType(sparkArgTypes)) else sparkArgTypes,
-      Some(model.name))
+      Some(model.name), true, true)
+  }
 }
 
 case class FunctionUDF(oper:Operator, name:String, function:RegisteredFunction, params:Seq[Expression], argTypes:Seq[Type]) extends MimirUDF {
@@ -1290,14 +1299,14 @@ case class FunctionUDF(oper:Operator, name:String, function:RegisteredFunction, 
       case t: Throwable => throw new Exception(s"FunctionUDF Error Extracting Args: \n\tModel: ${name} \n\tArgs: [${args.mkString(",")}] \n\tSparkArgs: [${sparkArgs.mkString(",")}]", t)
     }
   }
+  
   def varArgs(evaluator:Seq[PrimitiveValue] => PrimitiveValue)(args:Any*):Any = {
     //TODO: Handle all params for spark udfs: ref @willsproth
     val argList= extractArgs(args.toSeq)
     getNative(evaluator(argList))
   }
-  def getUDF = 
-    ScalaUDF(
-      function match {
+  def getUDF = {
+    val inFunc = function match {
         case NativeFunction(_, evaluator, typechecker, _) => 
           sparkArgs.length match { 
             case 0 => () => {
@@ -1393,11 +1402,15 @@ case class FunctionUDF(oper:Operator, name:String, function:RegisteredFunction, 
             }
             case x => varArgs(evaluator) _ 
           }
-      },
+      }
+    ScalaUDF(
+      inFunc,
       dataType,
       if(sparkArgs.length > 22) Seq(CreateStruct(sparkArgs)) else sparkArgs,
+      org.apache.spark.sql.catalyst.ScalaReflection.getParameterTypeNullability(inFunc), 
       if(sparkArgs.length > 22) Seq(getStructType(sparkArgTypes)) else sparkArgTypes,
-      Some(name))
+      Some(name), true, true)
+  }
 }
 
 case class GroupAnd(child: org.apache.spark.sql.catalyst.expressions.Expression) extends DeclarativeAggregate {
