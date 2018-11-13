@@ -126,6 +126,11 @@ resolvers ++= Seq("snapshots", "releases").map(Resolver.sonatypeRepo)
 
 updateOptions := updateOptions.value.withGigahorse(false)
 
+dependencyOverrides += "com.fasterxml.jackson.core" % "jackson-core" % "2.6.7"
+dependencyOverrides += "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.7"
+dependencyOverrides += "com.fasterxml.jackson.module" % "jackson-module-scala_2.11" % "2.6.7"
+
+
 libraryDependencies ++= Seq(
   ////////////////////// Command-Line Interface Utilities //////////////////////
   "org.rogach"                    %%  "scallop"                  % "3.1.3",
