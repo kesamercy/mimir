@@ -381,4 +381,5 @@ class MimirConfig(arguments: Seq[String]) extends ScallopConf(arguments)
     default = Some(8))
   val dataStagingType = opt[String]("dataStagingType", descr = "where to stage data for spark: hdfs or s3",
     default = Some("hdfs"))
+  verify()
 }
