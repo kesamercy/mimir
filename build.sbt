@@ -138,13 +138,13 @@ libraryDependencies ++= Seq(
   "info.mimirdb"                  %   "jsqlparser"               % "1.0.3",
 
   ////////////////////// Dev Tools -- Logging, Testing, etc... //////////////////////
-  //"com.typesafe.scala-logging"    %%  "scala-logging-slf4j"      % "2.1.2",
   "com.typesafe.scala-logging" 	  %%  "scala-logging" 			 % "3.9.0",
+  //"com.typesafe.scala-logging"    %%  "scala-logging-slf4j"      % "2.1.2",
   "ch.qos.logback"                %   "logback-classic"          % "1.2.3",
   "org.specs2"                    %%  "specs2-core"              % "4.3.5" % "test",
   "org.specs2"                    %%  "specs2-matcher-extra"     % "4.3.5" % "test",
   "org.specs2"                    %%  "specs2-junit"             % "4.3.5" % "test",
-  "org.clapper"                   %%  "classutil" 				 % "1.1.2",
+  "org.clapper"                   %%  "classutil" 				 % "1.4.0",
   "com.amazonaws" 				  %   "aws-java-sdk-s3" 		 % "1.11.234",
   //"ch.cern.sparkmeasure" 		  %%  "spark-measure" 			 % "0.13",
   "org.scala-lang" 				  %   "scala-compiler" 		 	 % "2.12.7",
